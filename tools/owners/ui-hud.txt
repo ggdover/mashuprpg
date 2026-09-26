@@ -1,0 +1,3 @@
+scripts/ui/hud/**
+tests/unit/test_ui_hud_*
+tests/scenes/ui_hud_*

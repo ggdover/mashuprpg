@@ -1,0 +1,7 @@
+tools/blender/environment/**
+assets/models/env_*
+assets/models/town_*
+assets/models/proj_*
+assets/icons/skills/**
+tools/godot/probe_environment.*
+tests/scenes/assets_environment_*

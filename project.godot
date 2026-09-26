@@ -1,0 +1,62 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Mashup RPG"
+config/description="A 3D action RPG with loot, a big passive tree and Blender-made low-poly assets."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
+config/icon="res://icon.svg"
+
+[autoload]
+
+Controls="*res://scripts/autoload/controls.gd"
+Events="*res://scripts/autoload/events.gd"
+Assets="*res://scripts/autoload/assets.gd"
+Sfx="*res://scripts/autoload/sfx.gd"
+ItemDB="*res://scripts/autoload/item_db.gd"
+SkillDB="*res://scripts/autoload/skill_db.gd"
+TreeDB="*res://scripts/autoload/tree_db.gd"
+EnemyDB="*res://scripts/autoload/enemy_db.gd"
+GameState="*res://scripts/autoload/game_state.gd"
+UI="*res://scripts/ui/ui_root.gd"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/window_width_override=1600
+window/size/window_height_override=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[layer_names]
+
+3d_physics/layer_1="world"
+3d_physics/layer_2="player"
+3d_physics/layer_3="enemies"
+3d_physics/layer_4="loot"
+3d_physics/layer_5="interactables"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=1
+
+[shader_globals]
+
+player_world_pos={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}

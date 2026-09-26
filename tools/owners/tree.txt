@@ -1,0 +1,5 @@
+tools/tree/**
+data/passive_tree.json
+scripts/autoload/tree_db.gd
+tests/unit/test_tree_*
+tests/scenes/tree_*

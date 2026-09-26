@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://tests/scenes/skills_balance_report.gd" id="1"]
+
+[node name="SkillsBalanceReport" type="Node"]
+script = ExtResource("1")

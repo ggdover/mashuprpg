@@ -1,0 +1,4 @@
+scripts/items/**
+scripts/autoload/item_db.gd
+tests/unit/test_items_*
+tests/scenes/items_*

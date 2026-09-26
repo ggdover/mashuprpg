@@ -1,0 +1,6 @@
+scripts/ui/passive_tree/**
+scripts/ui/skills/**
+scripts/ui/waypoint/**
+scripts/ui/menus/**
+tests/unit/test_ui_menus_*
+tests/scenes/ui_menus_*

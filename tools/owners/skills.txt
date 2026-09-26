@@ -1,0 +1,5 @@
+scripts/autoload/skill_db.gd
+scripts/skills/**
+scripts/vfx/**
+tests/unit/test_skills_*
+tests/scenes/skills_*

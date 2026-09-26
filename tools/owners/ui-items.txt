@@ -1,0 +1,7 @@
+scripts/ui/inventory/**
+scripts/ui/character/**
+scripts/ui/stash/**
+scripts/ui/vendor/**
+scripts/ui/tooltip/**
+tests/unit/test_ui_items_*
+tests/scenes/ui_items_*

@@ -1,0 +1,10 @@
+tools/blender/characters/**
+assets/models/char_*
+assets/models/weapon_*
+assets/models/offhand_*
+assets/models/armor_*
+assets/models/jewel_*
+assets/models/loot_*
+assets/icons/items/**
+tools/godot/probe_characters.*
+tests/scenes/assets_characters_*

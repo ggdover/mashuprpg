@@ -1,0 +1,4 @@
+scripts/autoload/enemy_db.gd
+scripts/entities/enemies/**
+tests/unit/test_enemies_*
+tests/scenes/enemies_*

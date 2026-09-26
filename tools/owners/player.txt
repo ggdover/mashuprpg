@@ -1,0 +1,3 @@
+scripts/entities/player/**
+tests/unit/test_player_*
+tests/scenes/player_*

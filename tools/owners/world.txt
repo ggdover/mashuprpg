@@ -1,0 +1,3 @@
+scripts/world/**
+tests/unit/test_world_*
+tests/scenes/world_*

@@ -1,0 +1,5 @@
+scenes/main.tscn
+scripts/main/**
+scripts/debug/**
+tests/unit/test_flow_*
+tests/scenes/flow_*

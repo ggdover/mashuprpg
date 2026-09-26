@@ -1,0 +1,11 @@
+scripts/core/actor.gd
+scripts/core/hit_data.gd
+scripts/core/damage_calc.gd
+scripts/core/combat_query.gd
+scripts/core/balance.gd
+scripts/core/class_defs.gd
+scripts/core/character_data.gd
+scripts/core/kernel_*
+scripts/autoload/game_state.gd
+tests/unit/test_kernel_*
+tests/scenes/kernel_*
