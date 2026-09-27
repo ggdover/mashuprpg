@@ -29,6 +29,8 @@ const PANELS := {
 	"passives": "res://scripts/ui/passive_tree/passive_tree_panel.gd",
 	"skills": "res://scripts/ui/skills/skills_panel.gd",
 	"waypoint": "res://scripts/ui/waypoint/waypoint_panel.gd",
+	"acts": "res://scripts/ui/acts/acts_panel.gd",
+	"debug": "res://scripts/ui/debug/debug_panel.gd",
 	"pause": "res://scripts/ui/menus/pause_menu.gd",
 	"death": "res://scripts/ui/menus/death_screen.gd",
 	"main_menu": "res://scripts/ui/menus/main_menu.gd",
@@ -46,9 +48,13 @@ const TOGGLE_ACTIONS := {
 	"toggle_character": "character",
 	"toggle_passives": "passives",
 	"toggle_skills": "skills",
+	"toggle_acts": "acts",
+	"toggle_debug": "debug",
 }
 
 var _root: Control
+## The "F1: debug menu" hint is shown once per session.
+var _debug_hint_shown := false
 var _hud_layer: Control
 var _panel_layer: Control
 var _top_layer: Control
@@ -283,6 +289,15 @@ func _on_inventory_full() -> void:
 func _on_area_entered(_info: Dictionary) -> void:
 	close_all_panels()
 	show_hud(true)
+	# "Explore the Acts" / "Debug Menu" from the title screen: open that panel on arrival
+	# (open_on_enter = a panel name, or true for the Act Explorer).
+	var want: Variant = GameState.act_options.get("open_on_enter", false)
+	if want is String or bool(want):
+		GameState.act_options.erase("open_on_enter")
+		open_panel.call_deferred(String(want) if want is String else "acts", {})
+	elif not _debug_hint_shown:
+		_debug_hint_shown = true
+		notify("F1: debug menu (travel anywhere, teleport, cheats)", UIStyle.COLOR_TEXT_DIM)
 
 
 # ------------------------------------------------------------------ input

@@ -1,0 +1,8 @@
+scripts/world/acts/act_desert.gd
+tools/blender/acts/desert.py
+assets/models/desert_*
+tests/scenes/acts_desert_*
+scripts/world/acts/monsters_desert.gd
+tools/layouts/specs/desert.json
+data/layouts/act_desert.json
+docs/screenshots/acts/desert/**

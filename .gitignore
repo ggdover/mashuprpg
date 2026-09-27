@@ -1,2 +1,4 @@
 # Godot 4 cache
 .godot/
+# Python bytecode (Blender scripts)
+__pycache__/

@@ -435,10 +435,10 @@ func is_slot_held(slot: int) -> bool:
 	return slot >= 0 and slot < _held.size() and _held[slot]
 
 
-## Resistance penalty applied right now (negative, 0 outside dungeons) — character sheet.
+## Resistance penalty applied right now (negative, 0 outside dungeons / act wilds) — character sheet.
 func get_resist_penalty() -> float:
 	var info := _area_info()
-	if String(info.get("id", "")) != "dungeon":
+	if not _is_combat_info(info):
 		return 0.0
 	var lvl := int(info.get("level", Balance.area_level_for_depth(int(info.get("depth", 1)))))
 	return Balance.resist_penalty(lvl)
@@ -515,9 +515,14 @@ func get_portal_cast_ratio() -> float:
 	return 1.0 - _portal_left / PORTAL_CAST_TIME if _portal_left > 0.0 else 0.0
 
 
-## True in a dungeon area (Town Portal allowed, resist penalty applies).
+## True in a dungeon area or act wilds (Town Portal allowed, resist penalty applies).
 func is_in_dungeon() -> bool:
-	return String(_area_info().get("id", "")) == "dungeon"
+	return _is_combat_info(_area_info())
+
+
+static func _is_combat_info(info: Dictionary) -> bool:
+	var id := String(info.get("id", ""))
+	return id == "dungeon" or (id == "act" and not bool(info.get("safe", String(info.get("zone", "hub")) == "hub")))
 
 
 # ------------------------------------------------------------------ Actor overrides
@@ -633,6 +638,9 @@ func _poll_input() -> void:
 	else:
 		var v := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 		_move_input = Vector3(v.x, 0.0, v.y)
+		# Camera-relative movement when the camera has been orbited (middle mouse).
+		if camera_rig != null and is_instance_valid(camera_rig) and camera_rig.yaw_deg != 0.0:
+			_move_input = _move_input.rotated(Vector3.UP, deg_to_rad(camera_rig.yaw_deg))
 	for i in _held.size():
 		if not _held[i] or _held_by_ai[i]:
 			continue
@@ -1073,7 +1081,9 @@ func _build_light() -> void:
 	light = OmniLight3D.new()
 	light.name = "PlayerLight"
 	light.light_color = LIGHT_COLOR
-	light.light_energy = LIGHT_ENERGY_TOWN if String(_area_info().get("id", "")) == "town" else LIGHT_ENERGY
+	var ai := _area_info()
+	var daylit := String(ai.get("id", "")) == "town" or (String(ai.get("id", "")) == "act" and bool(ai.get("daylight", false)))
+	light.light_energy = LIGHT_ENERGY_TOWN if daylit else LIGHT_ENERGY
 	light.omni_range = LIGHT_RANGE
 	light.omni_attenuation = 1.1
 	light.shadow_enabled = false

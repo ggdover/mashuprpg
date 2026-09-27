@@ -1,0 +1,21 @@
+{
+  "act": "forest",
+  "cell_m": 2.0,
+  "source": {"kind": "blobs", "seed": 11},
+  "town": {"at": [-30, 160], "exit_dir": [0, 1]},
+  "regions": [
+    {"id": "outskirts", "name": "The Mattis Woods", "center": [0, 0], "size": [330, 300], "subtitle": "Old pines, blueberry moss and the trail from Birkavik", "level": 0, "wobble": 0.08},
+    {"id": "tarn", "name": "Stillwater Tarn", "center": [290, 50], "size": [180, 200], "subtitle": "Black water, reeds and a witch's green fire", "level": 1, "wobble": 0.12},
+    {"id": "hollows", "name": "The Grey Dwarf Hollows", "center": [300, -190], "size": [170, 160], "subtitle": "Granite, dark spruce and the grey dwarves' burrows", "level": 2, "wobble": 0.14},
+    {"id": "gap", "name": "Hell's Gap", "center": [-40, -290], "size": [250, 150], "subtitle": "The Mattis fort, split by lightning", "level": 2, "wobble": 0.1},
+    {"id": "downs", "name": "The Barrow Downs", "center": [-310, -250], "size": [210, 200], "subtitle": "The barrows of old kings under a restless wind", "level": 3, "wobble": 0.1}
+  ],
+  "paths": [
+    {"a": "outskirts", "b": "tarn", "width": 22},
+    {"a": "tarn", "b": "hollows", "width": 20},
+    {"a": "hollows", "b": "outskirts", "width": 20, "via": [[170, -150]]},
+    {"a": "outskirts", "b": "gap", "width": 26, "via": [[-30, -170]]},
+    {"a": "gap", "b": "downs", "width": 22}
+  ],
+  "dungeon": {"region": "downs", "door": [-310, -140], "dir": [0, 1]}
+}

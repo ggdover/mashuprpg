@@ -30,6 +30,9 @@ var rng := RandomNumberGenerator.new()
 var size := 44
 var depth := 1
 var theme := "crypt"
+## WorldThemes palette for lights / debris ("" = theme). Act dungeons use their own palette
+## ("tomb", "barrow", "undercroft") on a base layout style (theme = "crypt" / "cave").
+var palette := ""
 var grid: WorldGrid = null
 ## CELL_* per cell.
 var cells := PackedByteArray()
@@ -772,7 +775,7 @@ func _torch_faces() -> Array:
 
 
 func _place_lighting() -> void:
-	var th := WorldThemes.get_theme(theme)
+	var th := WorldThemes.get_theme(palette if palette != "" else theme)
 	var col: Color = th["light_color"]
 	var energy: float = th["light_energy"]
 	var lrange: float = th["light_range"]
@@ -879,7 +882,7 @@ func _weighted(table: Dictionary) -> String:
 
 
 func _place_debris() -> void:
-	var th := WorldThemes.get_theme(theme)
+	var th := WorldThemes.get_theme(palette if palette != "" else theme)
 	var floor_table: Dictionary = th["debris"]
 	var wall_table: Dictionary = th["wall_debris"]
 	for j in range(1, size - 1):

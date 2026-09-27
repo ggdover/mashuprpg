@@ -35,6 +35,8 @@ func set_area(info: Dictionary) -> void:
 		area_name = id.capitalize()
 	var theme_id := String(info.get("theme", "town" if id == "town" else ""))
 	accent = THEME_COLORS.get(theme_id, UIStyle.COLOR_TITLE)
+	if info.has("act") and ActDefs.has_act(String(info["act"])):
+		accent = ActDefs.accent(String(info["act"]))
 	_update_sub()
 	queue_redraw()
 
@@ -47,7 +49,7 @@ func set_cleared(on: bool) -> void:
 
 func _update_sub() -> void:
 	var id := String(_info.get("id", ""))
-	if id == "town":
+	if id == "town" or (id == "act" and bool(_info.get("safe", false))):
 		sub_text = "Town"
 	elif _info.is_empty():
 		sub_text = ""

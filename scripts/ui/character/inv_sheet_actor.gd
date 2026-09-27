@@ -59,7 +59,7 @@ func get_weapon() -> Dictionary:
 ## Balance.resist_penalty of the current area when it is a dungeon, else 0.
 static func get_resist_penalty() -> float:
 	var info: Dictionary = GameState.current_area
-	if String(info.get("id", "")) != "dungeon":
+	if String(info.get("id", "")) != "dungeon" and not (String(info.get("id", "")) == "act" and not bool(info.get("safe", false))):
 		return 0.0
 	var lvl := int(info.get("level", Balance.area_level_for_depth(int(info.get("depth", 1)))))
 	return Balance.resist_penalty(lvl)

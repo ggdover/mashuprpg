@@ -1,0 +1,8 @@
+scripts/world/acts/act_gothic.gd
+tools/blender/acts/gothic.py
+assets/models/gothic_*
+tests/scenes/acts_gothic_*
+scripts/world/acts/monsters_gothic.gd
+tools/layouts/specs/gothic.json
+data/layouts/act_gothic.json
+docs/screenshots/acts/gothic/**

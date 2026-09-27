@@ -1,0 +1,13 @@
+scripts/world/acts/act_defs.gd
+scripts/world/acts/act_gen.gd
+scripts/ui/acts/**
+scripts/world/interactables/world_act_waystone.gd
+tools/blender/acts/build_all.py
+tools/godot/act_preview.*
+tests/unit/test_acts_*
+scripts/debug/debug_acts_tour.gd
+scripts/ui/debug/**
+scripts/world/acts/act_compose.gd
+scripts/world/interactables/world_dungeon_entrance.gd
+tools/layouts/build_layouts.py
+scripts/world/acts/act_compose.gd

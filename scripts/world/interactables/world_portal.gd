@@ -5,6 +5,11 @@ extends WorldInteractable
 ##   "next"   -> ("dungeon", {"depth": target_depth})       "Descend to Depth N"
 ##   "return" -> ("dungeon_return", {})                     "Return to Depth N"
 ##   "dungeon"-> ("dungeon", {"depth": target_depth})       (generic, e.g. debug)
+##   "act"    -> ("act", {"act": act_target, "zone": zone_target})  (act zones, see setup_act)
+##   "emberfall" -> ("town", {})                            (back to Emberfall from an act)
+##   "local"  -> ("act_local", {"pos": target_pos, ...})    (inside an act world: town portals,
+##                                                          the boss's portal to the hub)
+##   "overworld" -> ("act_return", {})                      (an act dungeon's way out)
 ## Interaction happens inside the player's physics step: it only emits the event (the game flow
 ## defers the actual change). OWNER: world.
 
@@ -35,12 +40,23 @@ const COLORS := {
 	"next": [Color(1.0, 0.32, 0.08), Color(1.0, 0.82, 0.35)],
 	"dungeon": [Color(1.0, 0.32, 0.08), Color(1.0, 0.82, 0.35)],
 	"return": [Color(0.15, 0.9, 0.55), Color(0.8, 1.0, 0.85)],
+	"act": [Color(0.95, 0.6, 0.15), Color(1.0, 0.9, 0.6)],
+	"emberfall": [Color(0.2, 0.5, 1.0), Color(0.75, 0.92, 1.0)],
+	"local": [Color(0.2, 0.5, 1.0), Color(0.75, 0.92, 1.0)],
+	"overworld": [Color(0.15, 0.9, 0.55), Color(0.8, 1.0, 0.85)],
 }
 
 static var _swirl_shader: Shader = null
 
 var destination := "town"
 var target_depth := 0
+## "act" portals: the act and the region ("hub", "outskirts", ...) they lead to.
+var act_target := ""
+var zone_target := ""
+## "local" portals: where they lead in the same world, and whether using it closes the town
+## portal pair (the hub side of a town portal).
+var target_pos := Vector3.ZERO
+var closes_pair := false
 var swirl: MeshInstance3D = null
 var swirl_material: ShaderMaterial = null
 var particles: GPUParticles3D = null
@@ -72,8 +88,54 @@ func setup(p_destination: String, p_depth: int = 0) -> WorldPortal:
 	return self
 
 
+## Portal into an act region: region "hub" / "outskirts" / ... of `act`, or "town" (act ignored) for
+## Emberfall. Named after the zone ("Qadesh", "Act II: Birkavik" when it leads to another act).
+func setup_act(act: String, zone: String) -> WorldPortal:
+	if zone == "town" or not ActDefs.has_act(act):
+		destination = "emberfall"
+		display_name = "Emberfall"
+		return self
+	destination = "act"
+	act_target = act
+	zone_target = zone
+	display_name = ActDefs.zone_name(act, zone)
+	var here: World = null
+	if GameState.world != null and is_instance_valid(GameState.world):
+		here = GameState.world
+	var cur_act := String(here.area_info.get("act", "")) if here != null else ""
+	if cur_act != act:
+		display_name = "%s: %s" % [ActDefs.act_label(act), display_name]
+	return self
+
+
+## A portal within the same act world (a town portal, the boss's way to the hub): leads to pos.
+func setup_local(pos: Vector3, label: String, p_closes_pair: bool = false) -> WorldPortal:
+	destination = "local"
+	target_pos = pos
+	closes_pair = p_closes_pair
+	display_name = label
+	return self
+
+
+## An act dungeon's way out, back into the act at the dungeon entrance.
+func setup_overworld(act: String) -> WorldPortal:
+	destination = "overworld"
+	act_target = act
+	var de: Dictionary = ActDefs.get_act(act).get("dungeon", {})
+	display_name = "Leave to %s" % ActDefs.zone_name(act, String(de.get("region", "wilds")))
+	return self
+
+
+## The swirl colours: act portals take their act's accent.
+func _colors() -> Array:
+	if destination == "act" and ActDefs.has_act(act_target):
+		var a := ActDefs.accent(act_target)
+		return [a.darkened(0.25), a.lerp(Color.WHITE, 0.55)]
+	return COLORS.get(destination, COLORS["town"])
+
+
 func get_hover_color() -> Color:
-	var cols: Array = COLORS.get(destination, COLORS["town"])
+	var cols: Array = _colors()
 	return (cols[1] as Color).lerp(Color.WHITE, 0.2)
 
 
@@ -96,7 +158,7 @@ func _build() -> void:
 			opening_size = Vector2(box.size.x * 0.74, box.size.y * 0.8)
 			label_height = box.end.y + 0.6
 	add_child(model)
-	var cols: Array = COLORS.get(destination, COLORS["town"])
+	var cols: Array = _colors()
 	# Swirl disc filling the ring opening, facing +Z (towards the camera).
 	if _swirl_shader == null:
 		_swirl_shader = Shader.new()
@@ -203,5 +265,13 @@ func interact(_player: Node) -> void:
 			Events.area_change_requested.emit("town", {"keep_dungeon": true})
 		"return":
 			Events.area_change_requested.emit("dungeon_return", {})
+		"act":
+			Events.area_change_requested.emit("act", {"act": act_target, "zone": zone_target})
+		"emberfall":
+			Events.area_change_requested.emit("town", {})
+		"local":
+			Events.area_change_requested.emit("act_local", {"pos": target_pos, "close_town_portal": closes_pair, "portal": true})
+		"overworld":
+			Events.area_change_requested.emit("act_return", {})
 		_:
 			Events.area_change_requested.emit("dungeon", {"depth": target_depth})

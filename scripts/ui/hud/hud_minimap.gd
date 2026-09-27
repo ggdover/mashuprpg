@@ -33,6 +33,8 @@ uniform vec2 center_cell = vec2(0.0);
 uniform float ppc = 6.0;
 uniform vec2 rect_size = vec2(200.0);
 uniform float circle = 1.0;
+// The camera's yaw (radians): the map turns so screen-up matches the view.
+uniform float map_rot = 0.0;
 uniform vec4 floor_color : source_color = vec4(0.5, 0.45, 0.38, 0.4);
 uniform vec4 edge_color : source_color = vec4(0.95, 0.85, 0.6, 0.9);
 uniform vec4 bg_color : source_color = vec4(0.0, 0.0, 0.0, 0.55);
@@ -50,7 +52,10 @@ float is_explored(vec2 c) {
 
 void fragment() {
 	vec2 px = UV * rect_size;
-	vec2 cf = center_cell + (px - rect_size * 0.5) / ppc;
+	vec2 sd = (px - rect_size * 0.5) / ppc;
+	float cr = cos(map_rot);
+	float sr = sin(map_rot);
+	vec2 cf = center_cell + vec2(sd.x * cr + sd.y * sr, -sd.x * sr + sd.y * cr);
 	vec2 c = floor(cf);
 	vec2 local = (cf - c) * ppc;
 	vec4 col = bg_color;
@@ -95,6 +100,8 @@ var rebuild_count: int = 0
 ## Player position in cell units (float).
 var center_cell: Vector2 = Vector2.ZERO
 var player_facing: Vector2 = Vector2(0, 1)
+## The map's turn (radians, = the camera's yaw), so screen-up on the map is screen-up in the game.
+var map_rot: float = 0.0
 
 var _map: ColorRect
 var _marks: Control
@@ -231,6 +238,11 @@ func step(delta: float, world: Node, player: Node3D) -> void:
 		center_cell = world_to_map(_player_pos)
 		var yaw := player.rotation.y
 		player_facing = Vector2(sin(yaw), cos(yaw))
+		var rig: Variant = player.get("camera_rig")
+		var mr := deg_to_rad(float(rig.yaw_deg)) if rig != null and is_instance_valid(rig) else 0.0
+		if mr != map_rot:
+			map_rot = mr
+			_mat.set_shader_parameter("map_rot", map_rot)
 	if large and _grid.x > 0 and _grid.y > 0:
 		# The overlay scales so small maps (town) fill a good part of the screen.
 		var want := clampf(minf(size.x, size.y) * 0.8 / float(maxi(_grid.x, _grid.y)), OVERLAY_PPC, OVERLAY_MAX_PPC)
@@ -277,9 +289,9 @@ func is_explored_at(pos: Vector3) -> bool:
 	return i >= 0 and i < ex.size() and ex[i] != 0
 
 
-## Screen position (local to this control) of a world position.
+## Screen position (local to this control) of a world position (the map turns with the camera).
 func world_to_screen(pos: Vector3) -> Vector2:
-	return size * 0.5 + (world_to_map(pos) - center_cell) * ppc
+	return size * 0.5 + (world_to_map(pos) - center_cell).rotated(map_rot) * ppc
 
 
 func get_grid_size() -> Vector2i:
@@ -366,7 +378,7 @@ func _draw_marks() -> void:
 	# Player arrow.
 	if _has_player:
 		var pc := world_to_screen(_player_pos)
-		var d := player_facing.normalized() if player_facing.length() > 0.01 else Vector2(0, 1)
+		var d := player_facing.rotated(map_rot).normalized() if player_facing.length() > 0.01 else Vector2(0, 1).rotated(map_rot)
 		var side := Vector2(-d.y, d.x)
 		var L := 9.0 * s
 		var tri := PackedVector2Array([pc + d * L, pc - d * L * 0.6 + side * L * 0.65, pc - d * L * 0.25, pc - d * L * 0.6 - side * L * 0.65])

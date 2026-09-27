@@ -52,10 +52,76 @@ Saves go to Godot's `user://` folder (on Linux: `~/.local/share/godot/app_userda
 | Passive tree | P | Skill book | K |
 | Town portal | T | Show all loot labels | hold Alt |
 | Minimap size | Tab | Pause / close panel | Esc |
-| Zoom | Mouse wheel | | |
+| Zoom | Mouse wheel | Act Explorer | M |
+| Debug menu | F1 | Camera info overlay | F2 |
+| Orbit camera | hold middle mouse + move | | |
 
 Your character always aims at the mouse. Holding a skill key repeats the skill. Left-clicking a loot
 label or an interactable (vendor, stash, waypoint, portal) walks there and picks it up or uses it.
+
+**Camera.** The default view looks diagonally across the map (yaw 37.5°, pitch 49.4°); the debug
+menu's Cheats tab switches to the straight view (yaw 0°, pitch 54.1°). Hold the middle mouse button
+and move the mouse to orbit around your character, like in World of Warcraft. Movement keys follow the camera's facing, and the view is kept between zones.
+**F2** shows the camera's numbers: yaw, pitch, distance, FOV, camera and player positions, and the
+look-at point. While it is shown, the wheel zooms from 3 to 80 m, PgUp/PgDn change the FOV, Home resets
+the view and Ctrl+C copies the numbers to the clipboard.
+
+### The three acts (forest, desert, gothic town)
+
+Besides Emberfall and its dungeon depths, the game has three hand-themed **acts**. Each act is **one
+big seamless map**: a safe town (merchant, stash, waystone), a large open area outside it (the
+outskirts, about 350 × 330 m), and four more zones joined to it by paths, each a little higher in
+level. You simply walk everywhere; when you cross into another zone its name and monster level fade in
+on screen (like Diablo II), and walking back into town refills your life and potions. Monsters never
+follow you into town, and they appear as you come near (so the huge maps stay fast). Every zone has its
+own monsters, landmarks and light, and a gateway marks each path between zones. Low ruined walls
+(desert) and Swedish roundpole fences (forest) mark the edges of the map; the gothic town is closed in
+by rows of houses and iron railings.
+
+Only the act's **dungeon** — its door stands in the deepest zone — and travel to another act use a
+screen transition. The act boss waits at the bottom of the dungeon; killing it opens a portal back out
+and one on to the next act.
+
+| Act | Town | Outskirts | Further zones (level +1 … +3) | Dungeon (+4) | Act boss |
+|---|---|---|---|---|---|
+| I — The Whispering Pines (forest) | Birkavik | The Mattis Woods | Stillwater Tarn, The Grey Dwarf Hollows, Hell's Gap, The Barrow Downs | The Old Barrow | Grimvald, the Barrow King |
+| II — The Gilded Sands (desert) | Qadesh | Banks of the Iteru | The Oasis, Snake Isles, Anubis Graveyard, Anubis Courtyard | The Anubis Temple | Nebkhet, the Undying Pharaoh |
+| III — The Night of the Hunt (gothic town) | Cathedral Square | The Old Ward | The Canal Quarter, Ashgrove Cemetery, Blackmoor Bridge, The Abbey Grounds | The Abbey Undercroft | The Crimson Vicar |
+
+**Act layouts from drawings.** Each act's map comes from a layout file, `data/layouts/act_<act>.json`,
+built by `tools/layouts/build_layouts.py`. The desert's is traced straight from a drawing
+(`tools/layouts/drawings/act2_layout.png`): every closed outline is an area you can walk in, blobs
+connected through gaps in their outlines are joined by paths, outlines inside a blob are holes, and zones
+are split at the narrowest part of the paths between them. To lay out an act yourself, draw it the same
+way in any paint program, write a spec like `tools/layouts/specs/desert.json` (the drawing's scale, and a
+point inside each zone where its label is), and run:
+
+```bash
+python3 tools/layouts/build_layouts.py desert --preview    # -> data/layouts/act_desert.json + a preview PNG
+```
+
+The forest and gothic layouts are generated from blob specs (centre, size and paths in metres) in the
+same folder.
+
+**Debug menu (F1).** The quickest way to test any zone. Press **F1** in the game, or on the title
+screen (which loads or creates a character called "Act Explorer"), or use the pause menu. It is docked
+on the left and the game keeps running. It has three tabs:
+
+- **Zones**: click to travel to Emberfall, any act's town, any of its zones (with their levels) or its
+  dungeon, a dungeon theme, or any depth (− / +, Go).
+- **Teleport**: jump to points in the current act or area: each zone, the start, the boss, the next
+  monster pack, the merchant, the stash, the waystone or gate, portals, chests and the shrine.
+- **Cheats**: god mode, monsters on/off for the next zone, the act monster level, level up (+1 / +5),
+  spawn loot, +10,000 gold, full heal and potions, reveal the map, kill the boss, remove all monsters,
+  a far camera for seeing whole landmarks, and the camera view (diagonal / straight).
+
+**Act Explorer (demo menu).** Open it with **M** anywhere in the game, from the pause menu (Esc →
+*Act Explorer*), or by clicking an act town's waystone. It travels straight to any act's town, zone or
+dungeon (or back to Emberfall) and has demo options: monster level (the act's own, your level, or a custom
+level — further zones add their offsets), monsters on/off (explore in peace), and god mode.
+
+Outside town, Town Portal (T) opens a portal pair: one where you stand and one in town, which takes you
+back. Death brings you back to the act's town.
 
 ### Debug keys (debug builds, e.g. running from the editor)
 
@@ -85,7 +151,7 @@ $GODOT --headless --path . res://tests/test_runner.tscn -- --filter=test_items
 The output ends with `=== TESTS: N passed, M failed ===` and a list of the failed tests.
 
 Useful filters: `test_kernel`, `test_items`, `test_tree`, `test_world`, `test_skills`, `test_player`,
-`test_enemies`, `test_ui_hud`, `test_ui_items`, `test_ui_menus`, `test_flow`.
+`test_enemies`, `test_ui_hud`, `test_ui_items`, `test_ui_menus`, `test_flow`, `test_acts`.
 
 ### Parse check
 
@@ -117,6 +183,25 @@ each to a folder, then quits. It needs a real window, so don't use `--headless` 
 
 ```bash
 $GODOT --path . res://scenes/main.tscn -- --shots=/tmp/mashup_shots
+```
+
+### Acts: preview and tour
+
+`tools/godot/act_preview.tscn` builds a whole act (town, road and wilds) without starting a game. It saves screenshots from the game
+camera and from high above, and can keep the window open so you can fly around. It needs a window:
+
+```bash
+$GODOT --path . res://tools/godot/act_preview.tscn -- --act=forest --zone=wilds --monsters --hold=600
+# --act=desert|forest|gothic  --zone=hub|wilds  --out=DIR  --seed=N  --level=N  --only=overview,road,seam,dungeon
+# While holding: WASD/arrows move, mouse wheel zooms, Q/E change the pitch.
+```
+
+The acts tour plays the real flow through all three acts (the menus, each town, the road, walking into
+the wilds with its name banner, a fight, the dungeon and back, the boss and its portals) and saves a
+screenshot at each step:
+
+```bash
+$GODOT --path . res://scenes/main.tscn -- --acts-tour=/tmp/acts_tour
 ```
 
 ### Demo scenes
@@ -157,7 +242,13 @@ blender --background --factory-startup --python tools/blender/characters/build_a
 blender --background --factory-startup --python tools/blender/environment/build_all.py -- --check
 ```
 
-Both accept `-- --only <ids>` to rebuild just some assets (see the docstring at the top of each
+The act assets (`desert_*`, `forest_*`, `gothic_*`) have their own driver:
+
+```bash
+blender --background --factory-startup --python tools/blender/acts/build_all.py -- --only desert --check
+```
+
+All three accept `-- --only <ids>` to rebuild just some assets (see the docstring at the top of each
 `build_all.py`). Re-run the Godot `--import` step afterwards.
 
 ## Isolated test runs (`tools/gtest.sh`)
@@ -184,6 +275,7 @@ scripts/entities/       player and enemies
 scripts/items/          item bases, affixes, loot generation
 scripts/skills/ vfx/    skills and their effects
 scripts/world/          town and procedural dungeons
+scripts/world/acts/     the three acts: definitions, generator base class, one layout generator per act
 scripts/ui/             HUD and all panels
 scripts/main/ debug/    game flow, autoplay bot, screenshot tour
 data/passive_tree.json  generated passive tree

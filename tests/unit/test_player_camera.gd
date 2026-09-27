@@ -36,14 +36,15 @@ func test_placement_and_follow() -> void:
 	assert_true(cam.current, "current camera")
 	assert_near(cam.fov, 45.0, 0.001, "fov 45")
 	assert_eq(cam.projection, Camera3D.PROJECTION_PERSPECTIVE, "perspective")
-	assert_near(rig.distance, 18.0, 0.001, "default distance 18")
+	assert_near(rig.distance, CameraRig.DEFAULT_DISTANCE, 0.001, "default distance")
 	var focus := rig.get_focus_point()
 	assert_true(focus.distance_to(Vector3(5, CameraRig.FOCUS_HEIGHT, 3)) < 0.01, "focus on the player")
 	var fwd := -cam.global_transform.basis.z
-	assert_near(rad_to_deg(asin(-fwd.y)), 56.0, 0.1, "pitch 56° down")
-	assert_near(fwd.x, 0.0, 0.0001, "yaw 0")
-	assert_true(fwd.z < 0.0, "looking toward -Z")
-	assert_near(cam.global_position.distance_to(focus), 18.0, 0.01, "18 m from the focus")
+	assert_near(rad_to_deg(asin(-fwd.y)), CameraRig.PITCH_DEG, 0.1, "default pitch")
+	var flat := Vector2(fwd.x, fwd.z).normalized()
+	var want := Vector2(-sin(deg_to_rad(CameraRig.YAW_DEG)), -cos(deg_to_rad(CameraRig.YAW_DEG)))
+	assert_true(flat.distance_to(want) < 0.001, "default yaw (looking north-west)")
+	assert_near(cam.global_position.distance_to(focus), CameraRig.DEFAULT_DISTANCE, 0.01, "default distance from the focus")
 	# The camera looks at the focus point.
 	var to_focus := (focus - cam.global_position).normalized()
 	assert_near(to_focus.dot(fwd), 1.0, 0.0001, "focus centred")
@@ -78,7 +79,9 @@ func test_mouse_ground_position() -> void:
 	var size := rig.get_viewport().get_visible_rect().size
 	rig.mouse_override = size * 0.5
 	var g := rig.get_mouse_ground_position()
-	var expect := Vector3(2, 0, -3 - CameraRig.FOCUS_HEIGHT / tan(deg_to_rad(CameraRig.PITCH_DEG)))
+	var reach := CameraRig.FOCUS_HEIGHT / tan(deg_to_rad(CameraRig.PITCH_DEG))
+	var yaw := deg_to_rad(CameraRig.YAW_DEG)
+	var expect := Vector3(2 - sin(yaw) * reach, 0, -3 - cos(yaw) * reach)
 	assert_true(g.distance_to(expect) < 0.02, "centre ray hits %s (got %s)" % [expect, g])
 	# Round trip: world -> screen -> ground.
 	for pt in [Vector3(-5, 0, 4), Vector3(9, 0, -7), Vector3(2.5, 0, -3.5)]:
@@ -139,7 +142,7 @@ func test_zoom_and_shake() -> void:
 	wheel.position = Vector2(400, 300)
 	get_viewport().push_input(wheel, true)
 	await _procs(1)
-	assert_near(rig.zoom_target, 18.0 - CameraRig.ZOOM_STEP, 0.001, "wheel up zooms in")
+	assert_near(rig.zoom_target, CameraRig.DEFAULT_DISTANCE - CameraRig.ZOOM_STEP, 0.001, "wheel up zooms in")
 	for i in 20:
 		rig.zoom_by(-1)
 	assert_near(rig.zoom_target, CameraRig.MIN_DISTANCE, 0.001, "clamped at 11")

@@ -27,6 +27,9 @@ signal area_change_requested(area_id: String, params: Dictionary)
 signal area_entered(area_info: Dictionary)
 ## A dungeon depth's boss was killed (first and repeat kills alike).
 signal area_cleared(area_info: Dictionary)
+## Inside an act world the player walked into another region (hub / wilds): area_info with the
+## new "zone" / "name" (the HUD shows the name, the flow refills in the hub). No area change.
+signal zone_entered(area_info: Dictionary)
 ## The player finished casting Town Portal (T) in a dungeon; the game flow keeps the dungeon and
 ## goes to town.
 signal town_portal_requested()

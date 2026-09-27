@@ -29,12 +29,22 @@ uniform vec4 emission : source_color = vec4(0.0, 0.0, 0.0, 1.0);
 uniform float emission_energy = 0.0;
 uniform float use_instance_color = 1.0;
 uniform float top_darken = 0.0;
+// Wind sway (foliage): model-space displacement growing with height above sway_base.
+uniform float sway = 0.0;
+uniform float sway_base = 1.0;
 varying vec3 v_tint;
 varying float v_up;
 
 void vertex() {
 	v_tint = mix(vec3(1.0), COLOR.rgb, use_instance_color);
 	v_up = NORMAL.y;
+	if (sway > 0.0) {
+		float h = max(VERTEX.y - sway_base, 0.0);
+		float ph = MODEL_MATRIX[3].x * 0.37 + MODEL_MATRIX[3].z * 0.23;
+		float k = sway * h * h * 0.01;
+		VERTEX.x += (sin(TIME * 1.15 + ph) + 0.35 * sin(TIME * 2.7 + ph * 1.7)) * k;
+		VERTEX.z += sin(TIME * 0.93 + ph * 1.31) * k * 0.7;
+	}
 }
 
 #ifdef CUTOUT
@@ -291,7 +301,7 @@ func _model_has_tint_materials(id: String) -> bool:
 ## metallic / emission. Tintable surfaces (tint_* names, or every surface if the model has none)
 ## are multiplied by `tint`.
 ## params: extra shader parameters ("top_darken": float, "emission_color": Color replaces the
-## emission colour of emissive surfaces).
+## emission colour of emissive surfaces, "sway": float + "sway_base": float (m) wind sway).
 func convert_material(id: String, src: Material, tint: Color, any_tint_named: bool, cutout: bool, instanced: bool, placeholder: bool, params: Dictionary = {}) -> Material:
 	var key := "%s|%d|%s|%s|%s|%s|%s" % [id, src.get_instance_id() if src else 0, tint.to_html(), cutout, instanced, placeholder, params]
 	if _mat_cache.has(key):
@@ -329,6 +339,9 @@ func convert_material(id: String, src: Material, tint: Color, any_tint_named: bo
 	m.set_shader_parameter("metallic", metallic)
 	if params.has("top_darken"):
 		m.set_shader_parameter("top_darken", float(params["top_darken"]))
+	if params.has("sway"):
+		m.set_shader_parameter("sway", float(params["sway"]))
+		m.set_shader_parameter("sway_base", float(params.get("sway_base", 1.0)))
 	_mat_cache[key] = m
 	return m
 

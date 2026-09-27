@@ -7,6 +7,8 @@ extends Control
 ## opens/closes "pause"; the UI keeps processing). A dimmed, vignetted game view with a centred
 ## frame: "PAUSED", the character and area, play time, and the buttons:
 ##   Resume              -> closes the panel (Esc does the same through UIRoot)
+##   Act Explorer        -> closes the panel and opens the Act Explorer ("acts", demo travel menu)
+##   Debug Menu          -> closes the panel and opens the debug menu ("debug": zones, teleports, cheats)
 ##   Save Game           -> GameState.save_game() + notification
 ##   Save & Quit to Menu -> save, then Events.return_to_menu_requested
 ##   Quit Game           -> save, then Events.quit_requested
@@ -20,6 +22,8 @@ const MenuCanvas := preload("res://scripts/ui/menus/menu_canvas.gd")
 const PANEL_NAME := "pause"
 
 var resume_button: Button
+var acts_button: Button
+var debug_button: Button
 var save_button: Button
 var save_quit_button: Button
 var quit_button: Button
@@ -68,6 +72,22 @@ func resume() -> void:
 	else:
 		visible = false
 		on_closed()
+
+
+## Close the pause menu and open the Act Explorer.
+func open_act_explorer() -> void:
+	if _busy:
+		return
+	resume()
+	UI.open_panel("acts", {})
+
+
+## Close the pause menu and open the debug menu.
+func open_debug_menu() -> void:
+	if _busy:
+		return
+	resume()
+	UI.open_panel("debug", {})
 
 
 ## Save the character. Returns true on success (notifies either way).
@@ -138,6 +158,8 @@ func _ensure_built() -> void:
 		MenuStyle.draw_divider(ci, Vector2(20, ci.size.y * 0.5), Vector2(ci.size.x - 20, ci.size.y * 0.5), UIStyle.COLOR_BORDER_BRIGHT), Vector2(0, 22)))
 	var bv := MenuStyle.vbox(12)
 	resume_button = _button(bv, "Resume", true, resume)
+	acts_button = _button(bv, "Act Explorer", false, open_act_explorer)
+	debug_button = _button(bv, "Debug Menu  (F1)", false, open_debug_menu)
 	save_button = _button(bv, "Save Game", false, func() -> void: save())
 	save_quit_button = _button(bv, "Save & Quit to Menu", false, save_and_quit_to_menu)
 	quit_button = _button(bv, "Quit Game", false, quit_game)
@@ -164,7 +186,7 @@ func _button(parent: Control, text: String, primary: bool, cb: Callable) -> Butt
 
 
 func _set_buttons_enabled(on: bool) -> void:
-	for b in [resume_button, save_button, save_quit_button, quit_button]:
+	for b in [resume_button, acts_button, debug_button, save_button, save_quit_button, quit_button]:
 		(b as Button).disabled = not on
 
 

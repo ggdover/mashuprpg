@@ -146,6 +146,80 @@ const BOSSES := {
 	},
 }
 
+## Act monsters (scripts/world/acts): themed variants of the archetypes / bosses above. Each entry
+## names its "base" def and overrides keys (name, tint, scale, companions, description...);
+## EnemyDB merges them at startup. They only spawn in their act (ACT_WEIGHTS), never in dungeons.
+const ACT_MONSTERS := {
+	# Act I — desert
+	"tomb_guardian": {"base": "skeleton_warrior", "name": "Tomb Guardian", "tint": Color(1.08, 0.93, 0.6),
+		"attach_tint": Color(0.95, 0.75, 0.35), "min_depth": 1, "companions": ["dune_archer", "linen_dead"],
+		"description": "Gilded bones sworn to guard the kings' tombs."},
+	"dune_archer": {"base": "skeleton_archer", "name": "Dune Archer", "tint": Color(1.0, 0.86, 0.62),
+		"min_depth": 1, "companions": ["tomb_guardian"], "description": "Looses arrows from the dunes."},
+	"linen_dead": {"base": "zombie", "name": "Linen-Wrapped Dead", "tint": Color(1.55, 1.3, 1.45),
+		"min_depth": 1, "companions": ["tomb_guardian", "carrion_jackal"],
+		"description": "Embalmed and bound in linen, it shambles on regardless."},
+	"carrion_jackal": {"base": "ghoul", "name": "Carrion Jackal", "tint": Color(0.97, 0.78, 0.42),
+		"min_depth": 1, "companions": ["linen_dead"], "description": "Lean scavenger of the necropolis."},
+	"sun_priest": {"base": "cultist", "name": "Sun Priest", "tint": Color(1.17, 1.0, 0.53),
+		"attach_tint": Color(1.0, 0.8, 0.35), "min_depth": 1, "companions": ["tomb_guardian", "linen_dead"],
+		"description": "Hurls fire in the name of a dead sun god."},
+	"sandstone_colossus": {"base": "brute", "name": "Sandstone Colossus", "tint": Color(1.24, 1.74, 1.66),
+		"min_depth": 1, "companions": ["tomb_guardian"], "description": "A temple statue that learned to walk."},
+	# Act II — forest
+	"draugr": {"base": "zombie", "name": "Draugr", "tint": Color(0.95, 0.92, 1.41), "min_depth": 1,
+		"companions": ["barrow_archer", "grey_dwarf"], "description": "A dead viking risen from its mound."},
+	"barrow_archer": {"base": "skeleton_archer", "name": "Barrow Archer", "tint": Color(0.75, 0.86, 0.64),
+		"min_depth": 1, "companions": ["draugr"], "description": "Moss-grown bones with a longbow."},
+	"grey_dwarf": {"base": "ghoul", "name": "Grey Dwarf", "tint": Color(0.86, 0.93, 0.72), "scale": 0.82,
+		"min_depth": 1, "companions": ["draugr"], "description": "Small, grey and hungry — they come in swarms."},
+	"forest_troll": {"base": "brute", "name": "Forest Troll", "tint": Color(0.67, 1.32, 1.1), "min_depth": 1,
+		"companions": ["grey_dwarf"], "description": "Old as the boulders it sleeps among."},
+	"rime_witch": {"base": "frost_cultist", "name": "Rime Witch", "tint": Color(0.62, 0.86, 0.72), "min_depth": 1,
+		"companions": ["draugr", "grey_dwarf"], "description": "A wild witch of the pines, cold of heart and hand."},
+	# Act III — gothic town
+	"scourge_beast": {"base": "ghoul", "name": "Scourge Beast", "tint": Color(0.47, 0.42, 0.34), "scale": 1.12,
+		"min_depth": 1, "companions": ["maddened_townsman"], "description": "What the plague made of a hunter."},
+	"maddened_townsman": {"base": "zombie", "name": "Maddened Townsman", "tint": Color(0.76, 0.57, 0.75),
+		"min_depth": 1, "companions": ["belfry_archer", "church_servant"], "description": "Torch, pitchfork, no mercy."},
+	"belfry_archer": {"base": "skeleton_archer", "name": "Belfry Archer", "tint": Color(0.5, 0.5, 0.56),
+		"min_depth": 1, "companions": ["maddened_townsman"], "description": "Shoots from the shadows of the bell towers."},
+	"church_servant": {"base": "cultist", "name": "Church Servant", "tint": Color(0.32, 0.35, 0.45),
+		"attach_tint": Color(0.7, 0.72, 0.8), "min_depth": 1, "companions": ["maddened_townsman"],
+		"description": "Hunched in black vestments, casting fire."},
+	"blood_acolyte": {"base": "necromancer", "name": "Blood Acolyte", "tint": Color(0.72, 0.14, 0.18),
+		"attach_tint": Color(0.7, 0.2, 0.2), "min_depth": 1, "companions": ["maddened_townsman", "church_servant"],
+		"description": "Raises the dead with a thimble of blood."},
+	"church_giant": {"base": "brute", "name": "Church Giant", "tint": Color(1.27, 2.05, 2.48), "min_depth": 1,
+		"companions": ["church_servant"], "description": "A bandaged giant with a bell-ringer's maul."},
+}
+
+## Act bosses: overrides of a base boss, spawned by the act wilds' boss group ("enemy" key).
+const ACT_BOSSES := {
+	"boss_pharaoh": {"base": "boss_lich", "name": "Nebkhet, the Undying Pharaoh", "tint": Color(2.75, 3.4, 0.6),
+		"description": "The river king who would not stay in his pyramid."},
+	"boss_barrow_king": {"base": "boss_gravebreaker", "name": "Grimvald, the Barrow King", "tint": Color(1.25, 1.3, 0.8),
+		"description": "Jarl of the draugr, crowned with moss."},
+	"boss_crimson_vicar": {"base": "boss_lich", "name": "The Crimson Vicar", "tint": Color(2.0, 0.45, 0.42),
+		"description": "Keeper of the cathedral's blood rites."},
+	# The act dungeons' guardians.
+	"boss_tomb_lord": {"base": "boss_gravebreaker", "name": "Sekhtur, Lord of the Tomb", "tint": Color(1.9, 1.55, 0.9),
+		"description": "A tomb guardian carved from the pyramid's own stone."},
+	"boss_barrow_wight": {"base": "boss_lich", "name": "The Barrow Wight", "tint": Color(1.1, 2.4, 1.4),
+		"description": "A cold, pale thing that guards the old dead under the hill."},
+	"boss_undertaker": {"base": "boss_gravebreaker", "name": "The Undertaker", "tint": Color(0.7, 0.72, 0.9),
+		"description": "He digs the graves, and fills them."},
+}
+
+## Spawn weights per act (only these ids spawn in the act's wilds).
+const ACT_WEIGHTS := {
+	"desert": {"tomb_guardian": 5.0, "dune_archer": 3.0, "linen_dead": 4.0, "carrion_jackal": 3.0, "sun_priest": 2.0,
+		"sandstone_colossus": 1.5},
+	"forest": {"draugr": 5.0, "barrow_archer": 3.0, "grey_dwarf": 4.0, "forest_troll": 2.0, "rime_witch": 2.0},
+	"gothic": {"maddened_townsman": 5.0, "scourge_beast": 4.0, "belfry_archer": 2.5, "church_servant": 2.5,
+		"blood_acolyte": 1.5, "church_giant": 1.5},
+}
+
 ## Spawn weights per dungeon theme (archetypes whose min_depth is above the depth are skipped).
 const THEME_WEIGHTS := {
 	"crypt": {"skeleton_warrior": 5.0, "skeleton_archer": 3.5, "zombie": 4.0, "ghoul": 1.0, "cultist": 1.0,

@@ -29,6 +29,8 @@ var rule: TextureRect
 var _tween: Tween = null
 var _title_tween: Tween = null
 var _gradient: Gradient = null
+## "Loading ..." line on the black overlay while a big area builds.
+var loading_label: Label
 
 
 func _init() -> void:
@@ -42,6 +44,16 @@ func _init() -> void:
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.visible = false
 	add_child(overlay)
+	loading_label = Label.new()
+	loading_label.name = "Loading"
+	loading_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	loading_label.set_anchors_preset(Control.PRESET_CENTER)
+	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	loading_label.add_theme_font_size_override("font_size", 22)
+	loading_label.add_theme_color_override("font_color", Color(0.86, 0.8, 0.66))
+	loading_label.visible = false
+	add_child(loading_label)
 	_build_title()
 
 
@@ -64,9 +76,16 @@ func fade_out(duration: float, on_black: Callable = Callable()) -> void:
 	_tween.tween_callback(cb)
 
 
+## Show a "Loading ..." line on the (black) overlay; fade_in() hides it.
+func show_loading(text: String) -> void:
+	loading_label.text = text
+	loading_label.visible = true
+
+
 ## Tween the overlay back to transparent over `duration` s (hidden when done).
 func fade_in(duration: float) -> void:
 	_kill(_tween)
+	loading_label.visible = false
 	if duration <= 0.0 or not is_inside_tree():
 		overlay.color.a = 0.0
 		overlay.visible = false

@@ -1,0 +1,21 @@
+{
+  "act": "gothic",
+  "cell_m": 2.0,
+  "source": {"kind": "blobs", "seed": 23},
+  "town": {"at": [20, 150], "exit_dir": [0, 1]},
+  "regions": [
+    {"id": "outskirts", "name": "The Old Ward", "center": [0, 0], "size": [320, 290], "level": 0, "wobble": 0.06, "roundness": 3.4},
+    {"id": "canals", "name": "The Canal Quarter", "center": [-285, -30], "size": [180, 210], "level": 1, "wobble": 0.08, "roundness": 3.2},
+    {"id": "cemetery", "name": "Ashgrove Cemetery", "center": [-270, -275], "size": [200, 170], "level": 2, "wobble": 0.1},
+    {"id": "bridge", "name": "Blackmoor Bridge", "center": [30, -285], "size": [240, 140], "level": 2, "wobble": 0.08, "roundness": 3.4},
+    {"id": "abbey", "name": "The Abbey Grounds", "center": [310, -290], "size": [210, 200], "level": 3, "wobble": 0.08, "roundness": 3.2}
+  ],
+  "paths": [
+    {"a": "outskirts", "b": "canals", "width": 22},
+    {"a": "canals", "b": "cemetery", "width": 20},
+    {"a": "cemetery", "b": "bridge", "width": 18},
+    {"a": "outskirts", "b": "bridge", "width": 26},
+    {"a": "bridge", "b": "abbey", "width": 22}
+  ],
+  "dungeon": {"region": "abbey", "door": [420, -290], "dir": [1, 0]}
+}

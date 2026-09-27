@@ -9,12 +9,22 @@ extends Node
 ##        skip the menu, play with the autoplay bot (scripts/debug/debug_autoplay.gd), quit with
 ##        0 when healthy (non-zero when stuck / errors / no progress)
 ##   --shots=DIR   screenshot tour (scripts/debug/debug_shot_tour.gd); needs a real window
+##   --acts-tour=DIR  acts screenshot tour (scripts/debug/debug_acts_tour.gd); needs a real window
 ##
 ## Area change (§15), handled for Events.area_change_requested / town_portal_requested /
 ## respawn_requested and the new game / load requests. Requests while a change is running (or
 ## while the player lies dead, except the respawn) are ignored. The change itself runs deferred
 ## (after a short fade to black, see FlowFade), synchronously:
 ##   1. close panels; remember the player's pool ratios; free the player and the camera rig
+## Acts (see ActDefs): one seamless World per act ("act" with {"act", "zone": the arrival —
+## "hub" | a region id | "wilds" | "town_portal" | "dungeon_exit"}). Walking between its regions is no area
+## change (the World announces the region, Events.zone_entered; entering the hub refills like
+## the town). Inside an act world, the town portal, death and travel to the same act's other
+## region are "act_local" changes: same World, the player re-placed behind a fade. The act's
+## dungeon ("act_dungeon") keeps the act world detached (_overworld) and "act_return" (its exit
+## portal) brings you back out in front of the entrance; a town portal / death in the act dungeon
+## keeps the dungeon and leads to the act's hub (with a return portal). Travel to another act or
+## Emberfall is a full change that discards the act world.
 ##   2. keep the old dungeon (town with keep_dungeon, or a death respawn) detached in
 ##      GameState.town_portal_state = {"world", "position"}, else free it; a fresh dungeon
 ##      discards a kept one
@@ -42,6 +52,7 @@ const FlowAreas := preload("res://scripts/main/flow_areas.gd")
 const FlowDebugKeys := preload("res://scripts/main/flow_debug_keys.gd")
 const AUTOPLAY_SCRIPT := "res://scripts/debug/debug_autoplay.gd"
 const SHOT_TOUR_SCRIPT := "res://scripts/debug/debug_shot_tour.gd"
+const ACTS_TOUR_SCRIPT := "res://scripts/debug/debug_acts_tour.gd"
 
 signal area_change_started(area_id: String, params: Dictionary)
 signal area_change_finished(area_info: Dictionary)
@@ -84,6 +95,8 @@ var _save_queued := false
 var _menu_queued := false
 ## God mode survives area changes (F11 is a debug toggle for the session).
 var _god_mode := false
+## The act world kept (detached) while the player is inside its dungeon.
+var _overworld: World = null
 ## Mirror of GameState.town_portal_state.world (freed with Main if still detached).
 var _kept_world: World = null
 
@@ -94,6 +107,7 @@ func _ready() -> void:
 	Events.new_game_requested.connect(_on_new_game_requested)
 	Events.load_game_requested.connect(_on_load_game_requested)
 	Events.area_change_requested.connect(_on_area_change_requested)
+	Events.zone_entered.connect(_on_zone_entered)
 	Events.town_portal_requested.connect(_on_town_portal_requested)
 	Events.boss_killed.connect(_on_boss_killed)
 	Events.player_died.connect(_on_player_died)
@@ -108,11 +122,16 @@ func _ready() -> void:
 		_start_mode(AUTOPLAY_SCRIPT, "bot")
 	elif args.has("shots"):
 		_start_mode(SHOT_TOUR_SCRIPT, "tour")
+	elif args.has("acts-tour"):
+		_start_mode(ACTS_TOUR_SCRIPT, "tour")
 	else:
 		show_main_menu()
 
 
 func _exit_tree() -> void:
+	if _overworld != null and is_instance_valid(_overworld) and not _overworld.is_inside_tree():
+		_overworld.queue_free()
+	_overworld = null
 	var kw := get_kept_world()
 	if kw != null and not kw.is_inside_tree():
 		kw.queue_free()
@@ -238,12 +257,51 @@ func request_area_change(area_id: String, params: Dictionary = {}) -> bool:
 		return false
 	if _awaiting_respawn:
 		return false
+	var cw: World = GameState.world if is_instance_valid(GameState.world) else null
 	match area_id:
 		"town":
+			if bool(params.get("keep_dungeon", false)) and cw != null:
+				# Town portal inside an act world: a portal pair to the act's hub (same World).
+				if cw.is_act():
+					if cw.is_act_hub():
+						return false
+					var cast := p.global_position if p != null else cw.get_player_start()
+					return _begin_change("act_local", {"pos": cw.open_town_portal_pair(cast), "portal": true})
+				# ... in an act dungeon: to the act's hub, the dungeon kept.
+				if cw.is_dungeon() and cw.area_info.has("act"):
+					return _begin_change("act", {"act": String(cw.area_info["act"]), "zone": "town_portal", "keep_dungeon": true})
 			if GameState.is_in_town() and is_instance_valid(GameState.world) and not params.has("reason"):
 				return false
 		"dungeon":
 			pass
+		"act":
+			var act := String(params.get("act", ""))
+			if not ActDefs.has_act(act):
+				push_warning("Main: unknown act '%s'; ignored" % act)
+				return false
+			# The same act: no reload, just re-place the player in that region.
+			if cw != null and cw.is_act() and String(cw.area_info.get("act", "")) == act and not params.has("reason"):
+				var zone := String(params.get("zone", "hub"))
+				return _begin_change("act_local", {"pos": cw.get_region_arrival(zone)})
+		"act_local":
+			if cw == null or not cw.is_act():
+				push_warning("Main: act_local outside an act world; ignored")
+				return false
+		"act_dungeon":
+			var act2 := String(params.get("act", cw.area_info.get("act", "") if cw != null else ""))
+			if not ActDefs.has_act(act2):
+				push_warning("Main: act_dungeon for an unknown act; ignored")
+				return false
+			params = params.duplicate()
+			params["act"] = act2
+			# Its dungeon is still open (town portal / death): go back into that one.
+			var kept := get_kept_world()
+			if kept != null and kept.is_dungeon() and String(kept.area_info.get("act", "")) == act2:
+				return _begin_change("dungeon_return", {})
+		"act_return":
+			if cw == null or not (cw.is_dungeon() and cw.area_info.has("act")):
+				push_warning("Main: act_return outside an act dungeon; ignored")
+				return false
 		"dungeon_return":
 			if get_kept_world() == null:
 				push_warning("Main: dungeon_return without a kept dungeon; ignored")
@@ -265,6 +323,12 @@ func respawn() -> bool:
 	_awaiting_respawn = false
 	_death_timer = -1.0
 	GameState.character.lose_xp_fraction(Balance.DEATH_XP_PENALTY)
+	var cw: World = GameState.world if is_instance_valid(GameState.world) else null
+	if cw != null and cw.is_act():
+		# Back in the act's hub, same World.
+		return _begin_change("act_local", {"pos": cw.get_region_arrival("hub"), "respawn": true})
+	if cw != null and cw.is_dungeon() and cw.area_info.has("act"):
+		return _begin_change("act", {"act": String(cw.area_info["act"]), "zone": "town_portal", "respawn": true, "keep_dungeon": true})
 	return _begin_change("town", {"respawn": true})
 
 
@@ -380,11 +444,47 @@ func _show_death_screen() -> void:
 
 func _on_boss_killed(boss: Node) -> void:
 	var w: Variant = GameState.world
-	if not is_instance_valid(w) or not (w as World).is_dungeon():
+	if not is_instance_valid(w) or not ((w as World).is_dungeon() or (w as World).is_act()):
 		return
 	if not is_instance_valid(boss) or not (w as World).is_ancestor_of(boss):
 		return
-	_handle_boss_kill.call_deferred(w, (boss as Node3D).global_position)
+	var pos := (boss as Node3D).global_position
+	if (w as World).is_act():
+		_handle_act_boss_kill.call_deferred(w, pos)
+	elif (w as World).area_info.has("act"):
+		_handle_act_dungeon_boss_kill.call_deferred(w, pos)
+	else:
+		_handle_boss_kill.call_deferred(w, pos)
+
+
+## The act dungeon's guardian slain: a portal back out into the act.
+## The act boss (at the bottom of the act's dungeon) slain: portals back out into the act and on to
+## the next act, notifications, save.
+func _handle_act_dungeon_boss_kill(w: World, pos: Vector3) -> void:
+	if not is_instance_valid(w) or w != GameState.world:
+		return
+	var act := String(w.area_info.get("act", ""))
+	w.spawn_exit_portals(pos)
+	Events.area_cleared.emit(w.area_info)
+	Events.notify.emit("%s cleared: %s!" % [ActDefs.act_label(act), ActDefs.get_act(act)["title"]], UIStyle.COLOR_GOLD)
+	var nxt := ActDefs.next_act(act)
+	if nxt != "":
+		Events.notify.emit("The way to %s is open" % ActDefs.zone_name(nxt, "hub"), UIStyle.COLOR_TEXT)
+	_save_now()
+
+
+## A zone boss (the guardian outside the act's dungeon) slain: the zone is cleared.
+func _handle_act_boss_kill(w: World, pos: Vector3) -> void:
+	if not is_instance_valid(w) or w != GameState.world:
+		return
+	var region := w.region_at(pos)
+	w.cleared_regions[region if region != "" else "wilds"] = true
+	if w.current_region == region:
+		w.area_info["cleared"] = true
+	Events.area_cleared.emit(w.area_info)
+	var rname := String(w.get_region(region).get("name", "The zone")) if region != "" else "The zone"
+	Events.notify.emit("%s cleared!" % rname, UIStyle.COLOR_GOLD)
+	_save_now()
 
 
 func _handle_boss_kill(w: World, pos: Vector3) -> void:
@@ -423,10 +523,33 @@ func _begin_change(area_id: String, params: Dictionary) -> bool:
 		p.god_mode = true
 	area_change_started.emit(area_id, params)
 	if use_fade and fade != null and is_inside_tree():
-		fade.fade_out(FADE_OUT_TIME, _change_area.bind(area_id, params))
+		var loading := _loading_text(area_id, params)
+		if loading != "":
+			# A big build (an act): show "Loading ..." on the black screen for a frame first.
+			fade.fade_out(FADE_OUT_TIME, func() -> void: _change_after_frame(area_id, params, loading))
+		else:
+			fade.fade_out(FADE_OUT_TIME, _change_area.bind(area_id, params))
 	else:
 		_change_area.call_deferred(area_id, params)
 	return true
+
+
+## "Loading <name> ..." for changes that build an act world, else "".
+func _loading_text(area_id: String, params: Dictionary) -> String:
+	if area_id == "act":
+		var act := String(params.get("act", ""))
+		if _overworld != null and is_instance_valid(_overworld) and String(_overworld.area_info.get("act", "")) == act:
+			return ""
+		return "Loading %s ..." % String(ActDefs.get_act(act).get("title", "the act")) if ActDefs.has_act(act) else ""
+	return ""
+
+
+func _change_after_frame(area_id: String, params: Dictionary, text: String) -> void:
+	fade.show_loading(text)
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+	_change_area(area_id, params)
 
 
 func _change_area(area_id: String, params: Dictionary) -> void:
@@ -439,6 +562,9 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 		if fade != null:
 			fade.fade_in(FADE_IN_TIME if use_fade else 0.0)
 		return
+	if area_id == "act_local":
+		_change_local(params)
+		return
 	var respawning := bool(params.get("respawn", false))
 	var old_world: World = GameState.world if is_instance_valid(GameState.world) else null
 	var old_player := get_player()
@@ -448,14 +574,39 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 		push_warning("Main: the kept dungeon is gone; opening a fresh one")
 		id = "dungeon"
 		params = {"depth": c.max_depth}
+	var ow: World = _overworld if _overworld != null and is_instance_valid(_overworld) else null
+	var monsters := bool(params.get("monsters", GameState.act_options.get("monsters", true)))
+	var arrival := ""
+	var reuse: World = null
 	var info: Dictionary
 	match id:
 		"town":
 			info = FlowAreas.town_info()
 		"dungeon":
 			info = FlowAreas.dungeon_info(int(params.get("depth", c.max_depth)), int(params.get("seed", -1)))
+			info["monsters"] = monsters
+		"act", "act_return":
+			var act := String(params.get("act", ""))
+			arrival = String(params.get("zone", "hub"))
+			if id == "act_return":
+				act = String(old_world.area_info.get("act", "")) if old_world != null else act
+				arrival = "dungeon_exit"
+			if ow != null and String(ow.area_info.get("act", "")) == act:
+				reuse = ow
+				info = ow.area_info
+			else:
+				var as_zone := ActDefs.canonical_zone(act, arrival)
+				info = FlowAreas.act_info(act, as_zone if as_zone in ActDefs.region_ids(act) else "hub",
+					int(params.get("level", 0)), int(params.get("seed", -1)), monsters)
+				info["arrival"] = arrival
+		"act_dungeon":
+			info = FlowAreas.act_dungeon_info(String(params.get("act", "")), int(params.get("seed", -1)))
+			info["monsters"] = monsters
 		_:
 			info = kept.area_info
+	var into_act := id == "act" or id == "act_return"
+	var is_safe := id == "town" or (into_act and arrival in ["hub", "town_portal"])
+	var fresh_combat := id == "dungeon" or id == "act_dungeon" or (into_act and reuse == null)
 
 	# 1. Panels, the old player and camera.
 	UI.close_all_panels()
@@ -472,12 +623,20 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 		_free_node(camera_rig)
 	camera_rig = null
 
-	# 2. The old world: kept (town portal / death) or freed. A fresh dungeon discards a kept one.
-	if id == "dungeon":
+	# 2. The old world: kept (town portal / death; an act world while in its dungeon) or freed.
+	#    A fresh dungeon discards a kept one.
+	if id == "dungeon" or id == "act_dungeon":
 		_discard_kept_world()
 	if old_world != null:
-		var keep := id == "town" and old_world.is_dungeon() and (respawning or bool(params.get("keep_dungeon", false)))
-		if keep:
+		var keep := is_safe and old_world.is_combat_area() and not old_world.is_act() and (respawning or bool(params.get("keep_dungeon", false)))
+		if old_world.is_act() and (id == "act_dungeon" or id == "dungeon_return"):
+			if old_world.get_parent() != null:
+				old_world.get_parent().remove_child(old_world)
+			if ow != null and ow != old_world:
+				_free_node(ow)
+			_overworld = old_world
+			ow = old_world
+		elif keep:
 			_discard_kept_world()
 			var pos := old_world.get_player_start() if respawning else Vector3(old_pos.x, 0.0, old_pos.z)
 			if old_world.get_parent() != null:
@@ -488,9 +647,13 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 				EnemyDB.reset_bosses(old_world)
 		else:
 			_free_node(old_world)
+	# Leaving the act altogether: its kept world goes too.
+	if ow != null and is_instance_valid(ow) and ow != reuse and not (id == "act_dungeon" or id == "dungeon_return"):
+		_free_node(ow)
+		_overworld = null
 	GameState.world = null
 
-	# 3-4. The new world (in the tree before build), or the kept dungeon re-attached.
+	# 3-4. The new world (in the tree before build), or a kept world re-attached.
 	var w: World
 	var return_pos := Vector3.ZERO
 	if id == "dungeon_return":
@@ -500,6 +663,13 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 		_kept_world = null
 		GameState.world = w
 		GameState.current_area = info
+		add_child(w)
+	elif reuse != null:
+		w = reuse
+		_overworld = null
+		GameState.world = w
+		GameState.current_area = w.area_info
+		info = w.area_info
 		add_child(w)
 	else:
 		w = World.new()
@@ -513,16 +683,21 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 	var start := w.get_player_start()
 	if id == "dungeon_return":
 		start = w.get_nearest_walkable(return_pos)
+	elif into_act:
+		start = w.get_nearest_walkable(w.get_region_arrival(arrival))
 	var p := Player.new()
 	p.setup(c)
 	p.position = start
 	GameState.player = p
 	w.add_child(p)
-	if id != "town" and not ratios.is_empty():
+	if w.is_act():
+		w.sync_region(false)
+		is_safe = w.is_act_hub()
+	if not is_safe and not ratios.is_empty():
 		p.set_pool_ratios(ratios)
 	else:
 		p.refill_pools()
-	p.god_mode = _god_mode
+	p.god_mode = _god_mode or bool(GameState.act_options.get("god_mode", false))
 
 	# 6. Camera.
 	var rig := CameraRig.new()
@@ -534,18 +709,22 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 	camera_rig = rig
 	w.snap_light_pool()
 
-	# 7. Monsters (fresh dungeons) / the portal home (kept dungeon).
-	if id == "dungeon":
-		EnemyDB.populate_area(w)
-		EnemyDB.apply_sleep(p.global_position)
+	# 7. Monsters (fresh dungeons / act worlds) / the portal home (kept dungeon).
+	if fresh_combat and bool(info.get("monsters", true)):
+		# Act worlds are big: their monsters spawn as the player comes near.
+		if w.is_act():
+			w.start_lazy_spawns()
+		else:
+			EnemyDB.populate_area(w)
 	elif id == "dungeon_return":
 		w.spawn_town_portal(return_pos)
-		EnemyDB.apply_sleep(p.global_position)
+	if reuse != null:
+		w.refresh_town_portal()
+	EnemyDB.apply_sleep(p.global_position)
 
-	# 8. Town services.
-	if id == "town":
-		c.refill_potions()
-		GameState.vendor_stock = ItemDB.generate_vendor_stock(maxi(c.level, Balance.area_level_for_depth(c.max_depth)))
+	# 8. Town services (the town and act hubs).
+	if is_safe:
+		_town_services(w)
 
 	# 9. Announce, save, show.
 	_changing = false
@@ -562,6 +741,97 @@ func _change_area(area_id: String, params: Dictionary) -> void:
 	if _menu_queued:
 		_menu_queued = false
 		return_to_menu.call_deferred()
+
+
+## Inside an act world: the same World, the player re-placed at params.pos (town portal, death,
+## the boss's portal home, travel to the act's other region). close_town_portal: using the hub
+## side of a town portal closes the pair; respawn: full life, living bosses reset.
+func _change_local(params: Dictionary) -> void:
+	var c := GameState.character
+	var w: World = GameState.world if is_instance_valid(GameState.world) else null
+	if w == null:
+		_changing = false
+		if fade != null:
+			fade.fade_in(0.0)
+		return
+	var respawning := bool(params.get("respawn", false))
+	var old_player := get_player()
+	UI.close_all_panels()
+	var ratios := {}
+	if old_player != null and not old_player.dead:
+		ratios = old_player.get_pool_ratios()
+	GameState.player = null
+	if old_player != null:
+		_free_node(old_player)
+	if camera_rig != null and is_instance_valid(camera_rig):
+		_free_node(camera_rig)
+	camera_rig = null
+	if bool(params.get("close_town_portal", false)):
+		w.close_town_portal_pair()
+	var target: Vector3 = params.get("pos", w.get_region_arrival("hub"))
+	var p := Player.new()
+	p.setup(c)
+	p.position = w.get_nearest_walkable(target)
+	GameState.player = p
+	w.add_child(p)
+	w.sync_region(false)
+	var is_safe := w.is_act_hub()
+	if respawning or is_safe or ratios.is_empty():
+		p.refill_pools()
+	else:
+		p.set_pool_ratios(ratios)
+	p.god_mode = _god_mode or bool(GameState.act_options.get("god_mode", false))
+	var rig := CameraRig.new()
+	rig.name = "CameraRig"
+	rig.target = p
+	w.add_child(rig)
+	p.camera_rig = rig
+	rig.snap_to_target()
+	camera_rig = rig
+	w.snap_light_pool()
+	w.mark_explored(p.position, 14.0)
+	if respawning:
+		EnemyDB.reset_bosses(w)
+		EnemyDB.leave_combat_all(w)
+	EnemyDB.apply_sleep(p.position)
+	if is_safe:
+		_town_services(w)
+	_changing = false
+	changes_done += 1
+	Events.player_spawned.emit(p)
+	Events.area_entered.emit(w.area_info)
+	_save_now()
+	area_change_finished.emit(w.area_info)
+	if fade != null:
+		fade.fade_in(FADE_IN_TIME if use_fade else 0.0)
+	if _menu_queued:
+		_menu_queued = false
+		return_to_menu.call_deferred()
+
+
+## Town / act hub services: potions refill, the vendor restocks.
+func _town_services(w: World) -> void:
+	var c := GameState.character
+	if c == null:
+		return
+	c.refill_potions()
+	var stock_level := maxi(c.level, Balance.area_level_for_depth(c.max_depth))
+	if w != null and w.is_act():
+		stock_level = maxi(c.level, int(w.area_info.get("level", 1)))
+	GameState.vendor_stock = ItemDB.generate_vendor_stock(stock_level)
+
+
+## Walking into an act's hub counts as entering the town: full life and mana, potions, restock.
+func _on_zone_entered(info: Dictionary) -> void:
+	var w: World = GameState.world if is_instance_valid(GameState.world) else null
+	if w == null or not w.is_act() or _changing:
+		return
+	if bool(info.get("safe", false)):
+		var p := get_player()
+		if p != null and not p.dead:
+			p.refill_pools()
+		_town_services(w)
+	_queue_save()
 
 
 func _do_return_to_menu() -> void:
@@ -600,6 +870,9 @@ func _teardown() -> void:
 	if w != null and is_instance_valid(w):
 		_free_node(w as Node)
 	_discard_kept_world()
+	if _overworld != null and is_instance_valid(_overworld):
+		_free_node(_overworld)
+	_overworld = null
 	GameState.current_area = {}
 	_awaiting_respawn = false
 	_death_timer = -1.0

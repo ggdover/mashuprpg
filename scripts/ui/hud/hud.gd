@@ -105,6 +105,7 @@ func _ready() -> void:
 	Events.player_spawned.connect(_on_player_spawned)
 	Events.area_entered.connect(_on_area_entered)
 	Events.area_cleared.connect(_on_area_cleared)
+	Events.zone_entered.connect(_on_zone_entered)
 	Events.boss_spawned.connect(_on_boss_spawned)
 	Events.boss_killed.connect(_on_boss_killed)
 	Events.damage_number.connect(_on_damage_number)
@@ -574,6 +575,13 @@ func _on_area_entered(info: Dictionary) -> void:
 
 func _on_area_cleared(_info: Dictionary) -> void:
 	(area_label as HudAreaLabel).set_cleared(true)
+
+
+## Walking into another region of an act (hub <-> wilds): the region's name fades in (Diablo II
+## style) and the label under the minimap follows.
+func _on_zone_entered(info: Dictionary) -> void:
+	set_area(info, true)
+	(area_label as HudAreaLabel).set_cleared(bool(info.get("cleared", false)))
 
 
 func _on_boss_spawned(b: Node) -> void:

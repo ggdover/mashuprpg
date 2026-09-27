@@ -100,7 +100,7 @@ func _on_hover_changed(on: bool) -> void:
 ## Hover highlight strength here: softer in the dark dungeons than in the daylit town.
 func hover_amount() -> float:
 	var w := find_world()
-	if w != null and not w.is_town() and w.theme != "arena":
+	if w != null and not w.is_daylit() and w.theme != "arena":
 		return HOVER_AMOUNT_DARK
 	return HOVER_AMOUNT_DAY
 

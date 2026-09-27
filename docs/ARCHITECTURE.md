@@ -1025,3 +1025,91 @@ nodes with the same orbit as arcs via `get_link_arc(a, b)`). UI helpers: `NODE_R
 (flame ≈ (0, 2.15, 0.3)); `env_portal` opening centred at (0, 1.65, 0), radius 1.05, facing +Z;
 `town_stall` merchant spot (0, 0, −0.5); projectiles fly along +Z (materials `*tip*` mark the front);
 glowing parts use `emit_*` materials; kit `tint_*` variants b/c/dark/top are intentionally darker.
+
+---------------------------------------------------------------------------------------------------------
+
+## 20. Acts (forest, desert, gothic town)
+
+Three themed acts sit beside Emberfall and the dungeon depths: Act I forest, Act II desert, Act III
+gothic town (`ActDefs.ACT_ORDER`). **Each act is ONE big seamless World**: the town ("hub"), a big open
+"outskirts" zone and further zones joined by paths (each with a level offset), plus the act's
+**dungeon** (a separate area behind a screen fade) whose door stands in one zone. `ActDefs`
+(`scripts/world/acts/act_defs.gd`) holds per act: title, accent, base monster level, daylight, the
+generator script, the layout file, the act boss (in the dungeon), the zone boss (outside the dungeon
+door), the dungeon (`{"name", "theme", "region"}`, level offset `DUNGEON_LEVEL_OFFSET`) and the town's
+name. `ActDefs.regions(act)` lists the town and the layout's zones (`{"id", "name", "level", "safe"}`);
+`canonical_zone()` maps the old name "wilds" to "outskirts".
+
+- **Layouts** (`data/layouts/act_<act>.json`, built by `tools/layouts/build_layouts.py` from
+  `tools/layouts/specs/<act>.json`): per 2 × 2 m cell, which zone it belongs to (one letter per
+  cell, "." = not walkable), zone stats (bbox, centroid, deepest cell), links between zones (where
+  they touch), the exit towards the town and the dungeon door. A spec is either a **drawing** (closed
+  outlines; walkable = inside an odd number of outlines; labels erased around the seed points; the
+  town blob is dropped and becomes the exit; the dungeon box is dropped and its door noted) or
+  **blobs** (rounded shapes + paths in metres). Zones are split by a seeded watershed on the distance
+  to the walls, so borders fall in the paths between zones.
+- **Generators** (`WorldActGen`, `act_gen.gd`; one subclass per act in `act_<act>.gd`, no
+  `class_name`): the "hub" zone is the town (hand-placed, as before); the "wilds" zone is the whole
+  outdoor map: `use_layout()` sets up the grid, regions, the exit and the start, then the act paints
+  each region with the region API (`region_cells/rect/center/links/edge_cells/at/open`,
+  `scatter_region`, `auto_spawn_region`, `add_zone_boss`, `dungeon_door`, `set_region_pool`,
+  `set_region_theme`, `set_region_arrival`) and the usual helpers (`add_prop`, `add_obstacle`,
+  `add_block`, `add_building`, `add_tiles`, lights, glows, shafts, chests, shrines,
+  `add_dungeon_entrance`). The dungeon entrance may face any way. The camera looks north-west, so
+  entrances should face south or east. It is drawn with the see-through (cut-out) material, and the
+  player comes back out in front of it, or at `set_region_arrival("dungeon_exit", pos)`. Keep-outs and
+  scatter use spatial hashes. `ground_color()` /
+  `ground_height()` run for ~130k ground vertices: use `noise2()` (native FastNoiseLite) and per-cell
+  fields (`field_from`, `field_distance_to`, `field_sample`, `distance_to_blocked`). Budgets per act:
+  build ≤ ~4.5 s, ≤ ~9000 prop instances, ≤ ~3000 collision shapes. Each act may define its own
+  monster variants in `scripts/world/acts/monsters_<act>.gd` (`const MONSTERS := {id: {"base", ...}}`,
+  merged by EnemyDB).
+- **Composing** (`WorldActComposite`, `act_compose.gd`): generates the town and the wilds, turns the
+  wilds so the exits face each other (quarter turns, exact integer cell mapping), places them
+  `EXIT_GAP_CELLS` apart, merges the grids, carves the road, transforms every output, drops what lies
+  beyond the road's midline, marks the regions (the town up to the midline, the wilds' own zones
+  beyond), blends the ground across the midline, lines the walkable edges with the act's border pieces
+  (`border_style()`), and returns `regions` (the town first), `region_map`, `arrivals` (per zone plus
+  "wilds", "town_portal", "dungeon_exit"), `region_themes`, spawn groups with `region`, `level_offset`
+  and `pool`, `road`, `split`, `water_areas`, `fine_step`/`fine_rect` and a build `profile`.
+- **World**: `_build_act` builds the ground in 32 m tiles (the wilds' step near walkable ground, the
+  town's finer step around the town, 8 m far away). Relief is flattened on and near walkable cells:
+  it eases in over ~3.5 m, but ground below a water plane's level eases in over ~2 m, so shores sit
+  ~1 m from the walkable edge. It then builds water planes, tiles, props (chunked MultiMeshes),
+  collision, lights (a moving pool when there are many), glows, shafts, environment, particles,
+  interactables and each zone's `decorate()`; `build_profile` records the time per phase. Regions:
+  `region_at`, `is_safe_at`, `get_region_arrival`, `region_level` (base level + offset),
+  `current_region`; crossing a border (0.3 s debounce) updates `area_info` (`zone`, `name`, `safe`,
+  `level`, `depth`, `cleared`), blends the environment over 2.5 s, and emits `Events.zone_entered`.
+  The blend covers ambient, fog, sun, sky, tonemap and adjustments, plus volumetric fog, which is on
+  for the whole act when any region has it. `set_region_theme` overrides merge nested looks such as
+  `"volumetric_fog"` key by key. **Lazy
+  spawning** (`start_lazy_spawns`, `lazy_spawn_tick`, `pending_groups`, `stop_lazy_spawns`): monster
+  groups spawn when the player comes within `LAZY_RADIUS` (56 m), a few per 0.25 s, each with its
+  zone's level and pool (`EnemyDB.spawn_group`).
+- **Flow** (`main.gd`): `("act", {"act", "zone"})` for another act is a full change (with a "Loading
+  …" line on the black screen); for the same act it becomes `"act_local"`, which re-places the player
+  in the same World behind a fade (used for the town portal pair, death, and travel within an act).
+  Walking between zones is no area change; entering the town refills. `("act_dungeon", {"act"})`
+  detaches the act World (`Main._overworld`) and builds the dungeon (`FlowAreas.act_dungeon_info`:
+  level = act level + 4, the act boss). Its start portal (`setup_overworld`) emits `"act_return"`
+  (back in front of the door). The act boss's death spawns `PortalOut` and `PortalActNext` (the next
+  act's town, Emberfall after the last). A zone boss's death clears its zone. A town portal or death
+  in the act dungeon keeps the dungeon and leads to the act's town (return portal).
+- **World predicates:** `is_act()`, `is_act_hub()` / `is_act_wilds()` (the current region is / is
+  not safe), `is_safe_area()`, `is_combat_area()`, `is_daylit()`. `Player.is_in_dungeon()` is true
+  outside town in an act.
+- **Camera:** the default view is `CameraRig.PRESETS["diagonal"]` (yaw 37.5°, pitch 49.4°, 19.5 m),
+  and there is a `"straight"` preset (yaw 0°, pitch 54.1°). The minimap turns with the camera's yaw,
+  WASD moves relative to the view, middle mouse orbits, F2 shows the camera numbers.
+- **UI:** the Act Explorer (**M**, pause menu, a town's waystone) lists each act's town, zones (with
+  levels) and dungeon. The debug menu (**F1**, pause menu, title screen) has Zones (every act zone and
+  dungeon, Emberfall, the depths), Teleport (each zone, the boss, the next pack including packs not yet
+  spawned, services, chests, the dungeon door) and Cheats.
+- **Assets:** `tools/blender/acts/build_all.py` builds `desert.py` / `forest.py` / `gothic.py`
+  (`BUILDERS = {id: fn}`; a module that fails to import is skipped) and runs `--check`.
+- **Tools and tests:** `tools/layouts/build_layouts.py` (layouts + preview PNGs in
+  `docs/screenshots/acts/layouts/`), `tools/godot/act_preview.tscn` (a whole act: overview, every
+  zone's arrival / far spots / top view, road, seam, dungeon door; build time and profile; fly-around
+  with `--hold`), `main.tscn -- --acts-tour=DIR`, and `tests/unit/test_acts_world.gd` /
+  `test_acts_flow.gd` / `test_acts_debug_panel.gd`.

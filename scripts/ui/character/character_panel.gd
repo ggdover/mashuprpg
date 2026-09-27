@@ -156,7 +156,7 @@ func get_stat_actor() -> Actor:
 ## level of the deepest unlocked depth.
 static func reference_level() -> int:
 	var info: Dictionary = GameState.current_area
-	if String(info.get("id", "")) == "dungeon":
+	if String(info.get("id", "")) == "dungeon" or (String(info.get("id", "")) == "act" and not bool(info.get("safe", false))):
 		return maxi(1, int(info.get("level", 1)))
 	var c := GameState.character
 	return Balance.area_level_for_depth(c.max_depth if c != null else 1)
@@ -304,7 +304,10 @@ func _refresh_resists(a: Actor) -> void:
 		chip.queue_redraw()
 	if pen != 0.0:
 		var depth := int(GameState.current_area.get("depth", 0))
-		_penalty_label.text = "Depth %d: %d%% to elemental and chaos resistances (applied)" % [depth, roundi(pen)]
+		var where := "Depth %d" % depth
+		if String(GameState.current_area.get("id", "")) == "act":
+			where = String(GameState.current_area.get("name", "Here"))
+		_penalty_label.text = "%s: %d%% to elemental and chaos resistances (applied)" % [where, roundi(pen)]
 		_penalty_label.add_theme_color_override("font_color", UIStyle.COLOR_BAD.lerp(UIStyle.COLOR_TEXT, 0.25))
 	else:
 		var d := c.max_depth if c != null else 1

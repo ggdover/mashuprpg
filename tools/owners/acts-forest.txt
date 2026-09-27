@@ -1,0 +1,8 @@
+scripts/world/acts/act_forest.gd
+tools/blender/acts/forest.py
+assets/models/forest_*
+tests/scenes/acts_forest_*
+scripts/world/acts/monsters_forest.gd
+tools/layouts/specs/forest.json
+data/layouts/act_forest.json
+docs/screenshots/acts/forest/**

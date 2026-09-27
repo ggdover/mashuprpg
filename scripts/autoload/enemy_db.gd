@@ -36,6 +36,8 @@ const SLEEP_CHECK_INTERVAL := 0.25
 const SUMMON_CLAIM_RADIUS := 14.0
 
 var _defs: Dictionary = {}
+## Ids defined in the acts' own monster files (scripts/world/acts/monsters_<act>.gd).
+var _act_file_ids: Array = []
 var _sleep_timer := 0.0
 ## The enemy under the mouse (highlighted), tracked from Events.hovered_target_changed.
 var _hovered: WeakRef = null
@@ -57,6 +59,32 @@ func _ready() -> void:
 		var b: Dictionary = (EnemyDefs.BOSSES[id] as Dictionary).duplicate(true)
 		b["id"] = id
 		_defs[id] = b
+	# Act variants: the base def with the variant's overrides (EnemyDefs, then each act's own file
+	# scripts/world/acts/monsters_<act>.gd: `const MONSTERS := {id: {"base": ..., overrides}}`).
+	var tables: Array = [EnemyDefs.ACT_MONSTERS, EnemyDefs.ACT_BOSSES]
+	for act in ActDefs.ACT_ORDER:
+		var path := "res://scripts/world/acts/monsters_%s.gd" % act
+		if ResourceLoader.exists(path):
+			var scr := load(path) as GDScript
+			var consts: Dictionary = scr.get_script_constant_map() if scr != null else {}
+			if consts.get("MONSTERS") is Dictionary:
+				tables.append(consts["MONSTERS"])
+				for id in (consts["MONSTERS"] as Dictionary):
+					_act_file_ids.append(String(id))
+	for table in tables:
+		for id in table:
+			var over: Dictionary = table[id]
+			var base: Dictionary = _defs.get(String(over.get("base", "")), {})
+			if base.is_empty():
+				push_warning("EnemyDB: act monster %s has an unknown base" % id)
+				continue
+			var v: Dictionary = base.duplicate(true)
+			for k in over:
+				if k != "base":
+					v[k] = over[k]
+			v["id"] = id
+			v["act_only"] = true
+			_defs[id] = v
 	Events.player_died.connect(_on_player_died)
 	Events.respawn_requested.connect(_on_respawn_requested)
 	Events.hovered_target_changed.connect(_on_hovered_target_changed)
@@ -95,8 +123,22 @@ func get_boss_for_depth(depth: int) -> String:
 	return "boss_lich" if maxi(depth, 1) % 2 == 1 else "boss_gravebreaker"
 
 
+## Act monster and act boss ids (themed variants; spawn only in acts), incl. the acts' own files.
+func get_act_monster_ids() -> Array:
+	return EnemyDefs.ACT_MONSTERS.keys() + EnemyDefs.ACT_BOSSES.keys() + _act_file_ids
+
+
 ## {archetype id: weight} allowed at this depth (min_depth <= depth), weighted by the theme.
+## Act themes ("desert", "forest", "gothic") give their act's monsters (EnemyDefs.ACT_WEIGHTS).
 func get_pool_for_depth(depth: int, theme: String = "") -> Dictionary:
+	if EnemyDefs.ACT_WEIGHTS.has(theme):
+		var act_pool := {}
+		var aw: Dictionary = EnemyDefs.ACT_WEIGHTS[theme]
+		for id in aw:
+			if _defs.has(id) and int((_defs[id] as Dictionary).get("min_depth", 1)) <= maxi(depth, 1):
+				act_pool[id] = float(aw[id])
+		if not act_pool.is_empty():
+			return act_pool
 	var th := theme if EnemyDefs.THEME_WEIGHTS.has(theme) else World.theme_for_depth(depth)
 	var weights: Dictionary = EnemyDefs.THEME_WEIGHTS[th]
 	var out := {}
@@ -280,57 +322,74 @@ func populate_area(world: World) -> void:
 	if world == null or not is_instance_valid(world):
 		push_warning("EnemyDB.populate_area: no world")
 		return
-	var info := world.area_info
-	var depth := maxi(1, int(info.get("depth", 1)))
-	var level := int(info.get("level", Balance.area_level_for_depth(depth)))
-	var theme := world.theme
-	var pool := get_pool_for_depth(depth, theme)
 	var total := 0
 	var pack_id := 0
 	var boss_done := false
 	for g in world.get_spawn_groups():
 		var kind := String(g.get("kind", "pack"))
-		var center: Vector3 = g.get("position", Vector3.ZERO)
-		var radius := float(g.get("radius", 2.5))
-		var count := maxi(1, int(g.get("count", 3)))
-		match kind:
-			"boss":
-				if boss_done:
-					continue
-				var boss := spawn_enemy(get_boss_for_depth(depth), center, level, 3, [], world)
-				if boss != null:
-					boss_done = true
-					boss.pack_id = pack_id
-					_face_start(boss, world)
-			"rare_pack":
-				if total >= MAX_AREA_MONSTERS:
-					continue
-				var n := mini(count, MAX_AREA_MONSTERS - total)
-				var arche := pick_archetype(pool)
-				var members := _pack_members(arche, n - 1, pool, true)
-				members.push_front(arche)
-				var positions := _member_positions(world, center, maxf(radius, 2.5), members.size())
-				for i in members.size():
-					var e := spawn_enemy(members[i], positions[i], level, 2 if i == 0 else 0, [], world)
-					if e != null:
-						e.pack_id = pack_id
-						total += 1
-			_:
-				if total >= MAX_AREA_MONSTERS:
-					continue
-				var n2 := mini(count, MAX_AREA_MONSTERS - total)
-				var arche2 := pick_archetype(pool)
-				var members2 := _pack_members(arche2, n2, pool, false)
-				var magic := randf() < MAGIC_PACK_CHANCE
-				# A magic pack shares one rolled mod ("a pack of Hasted ghouls").
-				var pack_mods: Array = roll_mods(1, depth) if magic else []
-				var positions2 := _member_positions(world, center, radius, members2.size())
-				for i in members2.size():
-					var e2 := spawn_enemy(members2[i], positions2[i], level, 1 if magic else 0, pack_mods, world)
-					if e2 != null:
-						e2.pack_id = pack_id
-						total += 1
+		if kind == "boss":
+			if boss_done:
+				continue
+			boss_done = not spawn_group(world, g, pack_id).is_empty()
+		elif total < MAX_AREA_MONSTERS:
+			total += spawn_group(world, g, pack_id, MAX_AREA_MONSTERS - total).size()
 		pack_id += 1
+
+
+## Spawn one monster group (a World spawn group: {"position", "radius", "kind": "pack" |
+## "rare_pack" | "boss", "count", "enemy" (boss id), and optional "level", "depth", "pool"
+## ({enemy id: weight}: the archetypes to pick from)}). Level, depth and the pool default to the
+## world's area. max_count caps the members. Returns the spawned enemies.
+func spawn_group(world: World, g: Dictionary, pack_id: int = 0, max_count: int = 1000) -> Array[Enemy]:
+	var out: Array[Enemy] = []
+	if world == null or not is_instance_valid(world):
+		return out
+	var info := world.area_info
+	var level := int(g.get("level", info.get("level", 1)))
+	var depth := maxi(1, int(g.get("depth", info.get("depth", level))))
+	var pool: Dictionary = {}
+	var gp: Dictionary = g.get("pool", {})
+	for id in gp:
+		if has_def(String(id)) and not bool((_defs[String(id)] as Dictionary).get("boss", false)):
+			pool[String(id)] = float(gp[id])
+	if pool.is_empty():
+		pool = get_pool_for_depth(depth, String(info.get("act", world.theme)))
+	var center: Vector3 = g.get("position", Vector3.ZERO)
+	var radius := float(g.get("radius", 2.5))
+	var count := mini(maxi(1, int(g.get("count", 3))), max_count)
+	match String(g.get("kind", "pack")):
+		"boss":
+			var boss_id := String(g.get("enemy", info.get("boss", "")))
+			if not has_def(boss_id):
+				boss_id = get_boss_for_depth(depth)
+			var boss := spawn_enemy(boss_id, center, level, 3, [], world)
+			if boss != null:
+				boss.pack_id = pack_id
+				_face_start(boss, world)
+				out.append(boss)
+		"rare_pack":
+			var arche := pick_archetype(pool)
+			var members := _pack_members(arche, count - 1, pool, true)
+			members.push_front(arche)
+			var positions := _member_positions(world, center, maxf(radius, 2.5), members.size())
+			for i in members.size():
+				var e := spawn_enemy(members[i], positions[i], level, 2 if i == 0 else 0, [], world)
+				if e != null:
+					e.pack_id = pack_id
+					out.append(e)
+		_:
+			var arche2 := pick_archetype(pool)
+			var members2 := _pack_members(arche2, count, pool, false)
+			var magic := randf() < MAGIC_PACK_CHANCE
+			# A magic pack shares one rolled mod ("a pack of Hasted ghouls").
+			var pack_mods: Array = roll_mods(1, depth) if magic else []
+			var positions2 := _member_positions(world, center, radius, members2.size())
+			for i in members2.size():
+				var e2 := spawn_enemy(members2[i], positions2[i], level, 1 if magic else 0, pack_mods, world)
+				if e2 != null:
+					e2.pack_id = pack_id
+					out.append(e2)
+	return out
 
 
 ## Living enemies in the tree (group "enemies"), cached once per physics frame: the AI's cheap

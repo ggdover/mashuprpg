@@ -1,0 +1,21 @@
+{
+  "act": "desert",
+  "cell_m": 2.0,
+  "source": {
+    "kind": "drawing",
+    "path": "tools/layouts/drawings/act2_layout.png",
+    "m_per_px": 0.2191,
+    "reduce": 4,
+    "close_px": 5,
+    "line_threshold": 170
+  },
+  "town": {"seed": [1822, 2636], "label_box": [60, 22], "exit_dir": [0, 1]},
+  "regions": [
+    {"id": "outskirts", "name": "Banks of the Iteru", "seed": [1847, 1883], "level": 0, "subtitle": "Palm groves, fields and feluccas along the great river"},
+    {"id": "oasis", "name": "The Oasis", "seed": [745, 1167], "level": 1, "subtitle": "Cool water under the palms, and the caravans that camp there"},
+    {"id": "isles", "name": "Snake Isles", "seed": [685, 2108], "level": 2, "subtitle": "Papyrus marshes where the serpent gods are still worshipped"},
+    {"id": "graveyard", "name": "Anubis Graveyard", "seed": [2136, 715], "level": 2, "subtitle": "The necropolis of the jackal god"},
+    {"id": "courtyard", "name": "Anubis Courtyard", "seed": [3399, 786], "level": 3, "subtitle": "The golden court before the Anubis Temple"}
+  ],
+  "dungeon": {"region": "courtyard", "door": [3326, 1235], "dir": [0, 1]}
+}

@@ -606,6 +606,11 @@ func _update_movement(delta: float) -> void:
 		elif not busy and _separation.length_squared() > 0.04:
 			dir = _separation * 0.5
 	dir.y = 0.0
+	# Monsters never step into an act's safe hub.
+	if dir != Vector3.ZERO:
+		var w := _world()
+		if w != null and w.is_safe_at(global_position + dir.normalized() * (_radius + 0.6)):
+			dir = Vector3.ZERO
 	velocity = dir.limit_length(1.0) * get_move_speed() + knockback_velocity
 	velocity.y = 0.0
 	# Standing still: skip the physics sweep entirely.
@@ -637,9 +642,13 @@ func _acquire_target() -> Actor:
 	var radius := LEASH_RADIUS if combat else float(def.get("aggro_radius", 10.0))
 	var best: Actor = null
 	var best_d := INF
+	var w := _world()
 	for a in _hostiles():
 		var d := CombatQuery.distance_xz(pos, a.global_position)
 		if d > radius or d >= best_d:
+			continue
+		# Nobody is hunted inside an act's safe hub.
+		if w != null and w.is_safe_at(a.global_position):
 			continue
 		if not combat and not _has_los(a.global_position):
 			continue

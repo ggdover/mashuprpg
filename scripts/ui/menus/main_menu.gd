@@ -35,6 +35,9 @@ var continue_button: Button
 var new_button: Button
 var delete_button: Button
 var quit_button: Button
+## "Debug Menu (F1)": loads (or creates) the demo character and opens the debug menu.
+var explore_button: Button
+var explore_create_button: Button
 var begin_button: Button
 var back_button: Button
 var random_name_button: Button
@@ -235,6 +238,36 @@ func quit_game() -> void:
 	Events.quit_requested.emit()
 
 
+const EXPLORER_NAME := "Act Explorer"
+
+## Demo: load the "Act Explorer" character (created as a ranger the first time) and open the Act
+## Explorer panel on arrival.
+func explore_acts() -> void:
+	_start_demo("acts")
+
+
+## Debug: load the "Act Explorer" character (created as a ranger the first time) and open the
+## debug menu on arrival (also F1 on the title screen).
+func open_debug_menu() -> void:
+	_start_demo("debug")
+
+
+func _start_demo(panel: String) -> void:
+	if _is_busy():
+		return
+	GameState.act_options["open_on_enter"] = panel
+	var sid := ""
+	for info: Dictionary in GameState.list_saves():
+		if String(info.get("char_name", "")) == EXPLORER_NAME:
+			sid = String(info["save_id"])
+			break
+	_set_busy(true, "Opening the debug menu..." if panel == "debug" else "Opening the Act Explorer...")
+	if sid != "":
+		Events.load_game_requested.emit(sid)
+	else:
+		Events.new_game_requested.emit(EXPLORER_NAME, "ranger")
+
+
 ## A random fantasy name ("Kaeris", "Wrendor"...).
 static func random_name() -> String:
 	return NAME_START[randi() % NAME_START.size()] + NAME_END[randi() % NAME_END.size()]
@@ -325,6 +358,10 @@ func _build_list_view() -> Control:
 	quit_button = MenuStyle.make_button("Quit Game", UIStyle.FONT_NORMAL)
 	quit_button.pressed.connect(quit_game)
 	buttons.add_child(quit_button)
+	explore_button = MenuStyle.make_button("Debug Menu (F1)", UIStyle.FONT_NORMAL)
+	explore_button.add_theme_color_override("font_color", MenuStyle.GOLD)
+	explore_button.pressed.connect(open_debug_menu)
+	buttons.add_child(explore_button)
 	buttons.add_child(MenuStyle.spacer())
 	delete_button = MenuStyle.make_button("Delete", UIStyle.FONT_NORMAL)
 	delete_button.add_theme_color_override("font_hover_color", UIStyle.COLOR_BAD)
@@ -391,6 +428,10 @@ func _build_create_view() -> Control:
 	back_button.custom_minimum_size = Vector2(140, 0)
 	back_button.pressed.connect(show_list_view)
 	buttons.add_child(back_button)
+	explore_create_button = MenuStyle.make_button("Debug Menu (F1)", UIStyle.FONT_NORMAL)
+	explore_create_button.add_theme_color_override("font_color", MenuStyle.GOLD)
+	explore_create_button.pressed.connect(open_debug_menu)
+	buttons.add_child(explore_create_button)
 	buttons.add_child(MenuStyle.spacer())
 	begin_button = MenuStyle.make_button("Begin Adventure", UIStyle.FONT_LARGE, true)
 	begin_button.custom_minimum_size = Vector2(260, 0)
@@ -481,6 +522,10 @@ func _update_buttons() -> void:
 	continue_button.disabled = busy or _selected_save == ""
 	delete_button.disabled = busy or _selected_save == ""
 	new_button.disabled = busy
+	if explore_button != null:
+		explore_button.disabled = busy
+	if explore_create_button != null:
+		explore_create_button.disabled = busy
 	begin_button.disabled = busy or name_edit.text.strip_edges() == ""
 	back_button.disabled = busy
 
@@ -501,7 +546,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if get_viewport().gui_get_focus_owner() is LineEdit and k.keycode != KEY_ESCAPE:
 		return
 	var handled := true
-	if _confirm.visible:
+	if k.keycode == KEY_F1 and not _confirm.visible:
+		open_debug_menu()
+	elif _confirm.visible:
 		match k.keycode:
 			KEY_ESCAPE:
 				cancel_delete()

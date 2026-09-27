@@ -21,6 +21,9 @@ var player: Player = null
 var world: World = null
 ## Info about the current area; same dict as World.area_info.
 var current_area: Dictionary = {}
+## Act Explorer options (not saved): "level_mode": "act" | "character" | "custom", "level" (custom
+## monster level), "monsters" (spawn monsters in act wilds).
+var act_options: Dictionary = {"level_mode": "act", "level": 10, "monsters": true}
 ## Saved when a town portal is opened from a dungeon, so "dungeon_return" can resume it.
 ## {"world": World (detached, kept alive), "position": Vector3} or {}.
 var town_portal_state: Dictionary = {}

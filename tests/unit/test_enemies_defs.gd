@@ -18,7 +18,9 @@ func test_all_ids_present() -> void:
 	var ids := EnemyDB.get_all_ids()
 	for id in ARCHETYPES + BOSSES:
 		assert_has(ids, id, "EnemyDB id")
-	assert_eq(ids.size(), ARCHETYPES.size() + BOSSES.size(), "id count")
+	assert_eq(ids.size(), ARCHETYPES.size() + BOSSES.size() + EnemyDB.get_act_monster_ids().size(), "id count (+ act variants)")
+	for id in EnemyDB.get_act_monster_ids():
+		assert_has(ids, id, "act variant registered")
 	assert_eq(EnemyDB.get_archetype_ids().size(), ARCHETYPES.size(), "archetypes")
 	assert_eq(EnemyDB.get_boss_ids().size(), BOSSES.size(), "bosses")
 	assert_true(EnemyDB.get_def("nope").is_empty(), "unknown id -> {}")
