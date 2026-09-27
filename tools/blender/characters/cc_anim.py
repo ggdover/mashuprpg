@@ -23,7 +23,8 @@ A character `style` dict tunes the set:
 Durations and hit frames follow §14.3 exactly:
   idle 2.0 loop, run loop (run_frames, 0.37-0.6 s), attack_slash 0.6 (hit 0.45),
   attack_slam 0.8 (0.55), attack_stab 0.5 (0.45), shoot_bow 0.7 (0.6), shoot_crossbow 0.6 (0.4),
-  cast 0.6 (0.5), cast_area 0.7 (0.55), channel 1.0 loop, hit 0.3, die 1.0, dodge 0.4, roar 1.2.
+  cast 0.6 (0.5), cast_area 0.7 (0.55), channel 1.0 loop, hit 0.3, die 1.0, dodge 0.55, roar 1.2.
+The player also has parry 0.55 and walk (loop, planted feet at WALK_SPEED = 1.82 m/s).
 The build then bakes a per-frame vertical root correction (cc_ground.bake_ground): feet on y = 0 in
 every animation except die / dodge (which stay above the floor, corpses resting on it).
 """
@@ -32,15 +33,19 @@ import math
 from cc_rig import FPS, add, fk, lerp, mirror, pose, sample, scale, sym
 
 REF_RUN_SPEED = 5.2   # m/s: planted-foot speed of every walking character's run (speed_scale = v / 5.2)
+## Planted-foot speed of the player's walk (m/s): the pace while using a skill (0.35 × run speed), so
+## consumers play walk at speed_scale = move_speed / WALK_SPEED.
+WALK_SPEED = 1.82
 
 HUMANOID_ANIMS = ["idle", "run", "attack_slash", "attack_slam", "attack_stab", "shoot_bow", "shoot_crossbow",
 	"cast", "cast_area", "channel", "hit", "die", "dodge"]
 BOSS_ANIMS = HUMANOID_ANIMS + ["roar"]
+PLAYER_ANIMS = HUMANOID_ANIMS + ["parry", "parry_hold", "walk", "walk_back", "walk_left", "walk_right"]
 MERCHANT_ANIMS = ["idle", "talk"]
 
 DURATION = {"idle": 2.0, "run": 0.6, "attack_slash": 0.6, "attack_slam": 0.8, "attack_stab": 0.5,
 	"shoot_bow": 0.7, "shoot_crossbow": 0.6, "cast": 0.6, "cast_area": 0.7, "channel": 1.0, "hit": 0.3,
-	"die": 1.0, "dodge": 0.4, "roar": 1.2, "talk": 2.4}
+	"die": 1.0, "dodge": 0.55, "roar": 1.2, "talk": 2.4, "parry": 0.55}
 HIT_FRAME = {"attack_slash": 0.45, "attack_slam": 0.55, "attack_stab": 0.45, "shoot_bow": 0.6,
 	"shoot_crossbow": 0.4, "cast": 0.5, "cast_area": 0.55}
 
@@ -191,7 +196,8 @@ def _foot_track(st, q, side):
 	s = st["s"]
 	T = st["run_frames"] / FPS
 	d = st["duty"]
-	D = REF_RUN_SPEED * d * T
+	v = st.get("ground_speed", REF_RUN_SPEED)
+	D = v * d * T
 	limp = st["limp"] if side == "l" else 0.0
 	y0 = -D * 0.5 + st["stance_shift"] * s
 	hs = st["strike"]
@@ -208,7 +214,7 @@ def _foot_track(st, q, side):
 		y, z = R.stance_ankle(y0 + D * u, psi)
 		return y, z, psi, True
 	u = (q - d) / (1.0 - d)
-	m = REF_RUN_SPEED * (1.0 - d) * T * st["swing_match"]
+	m = v * (1.0 - d) * T * st["swing_match"]
 	y1, _z1 = R.stance_ankle(y0 + D, to)
 	ya, _za = R.stance_ankle(y0, hs)
 	y = _hermite(y1, ya, m, m, u)
@@ -312,6 +318,178 @@ def run(style):
 		p = add(p, _loc(st, "root", 0, 0, 0.04 * math.sin(2 * a)), _run_arms(st, s1))
 		return _fin(st, p, loco=True, carry=True)
 	return sample(fn, dur, step=1)
+
+
+## The walk: the IK run machinery at WALK_SPEED with a longer foot contact, a low step, heel strikes
+## and little bounce (the player's legs while moving during a skill; slow locomotion).
+WALK_STYLE = dict(ground_speed=WALK_SPEED, run_frames=28, duty=0.6, crouch=-0.03, bounce=0.012, lift=0.085,
+	lift_pow=2.0, strike=-10.0, toe_off=18.0, roll_start=0.45, arm_swing=12.0, lean=3.0, hip_twist=4.0,
+	stance_shift=0.04, swing_match=0.85, reach_k=0.985)
+
+
+def walk(style):
+	st = _st(style)
+	st.update(WALK_STYLE)
+	dur = st["run_frames"] / FPS
+	if st["hover"] > 0.0 or st.get("rig") is None:
+		return run(style)
+	return sample(lambda ph: _run_ik(st, ph), dur, step=1)
+
+
+# ----------------------------------------------------------------------------------- directional walks
+# The player's legs while moving during a skill in any direction (PlayerLegs blends them by the
+# direction of movement relative to the facing): walk (forward), walk_back, walk_left, walk_right.
+# Same machinery as the run, generalised: the planted feet slide against `walk_dir` (armature
+# ground plane: forward = (0, -1), right = (-1, 0)) at WALK_SPEED, the swing brings them back, and
+# the thigh may swing sideways (RigInfo.solve_leg_3d). Right foot touchdown at phase 0 in every
+# clip, so the clips can be blended at the same phase.
+
+## Backward: shorter, quicker steps, landing on the toes and lifting off from the heel, leaning back.
+WALK_BACK_STYLE = dict(WALK_STYLE, walk_dir=(0.0, 1.0), run_frames=22, duty=0.62, strike=12.0, toe_off=-10.0, crouch=-0.045,
+	lift=0.07, lean=-4.0, hip_twist=3.0, stance_shift=0.02, swing_match=0.85)
+## Sideways: a quick combat shuffle — the leading foot steps out, the trailing foot follows without
+## crossing, feet a little wider apart, flat-footed.
+WALK_SIDE_STYLE = dict(WALK_STYLE, run_frames=12, duty=0.6, strike=0.0, toe_off=5.0, stance_width=0.17, lift=0.075,
+	lift_pow=2.0, crouch=-0.05, bounce=0.006, lean=1.5, hip_twist=0.0, stance_shift=0.0, swing_match=0.9)
+
+
+def _dir_foot(st, q, side):
+	"""Ankle (x, y, z) in armature space, foot pitch and whether the foot is planted, for one foot
+	at gait phase q (0 = touchdown) of a directional walk."""
+	R = st["rig"]
+	s = st["s"]
+	T = st["run_frames"] / FPS
+	d = st["duty"]
+	v = st["ground_speed"]
+	D = v * d * T
+	mx, my = st["walk_dir"]
+	out = -1.0 if side == "r" else 1.0      # the character's right is -X
+	cx = R.ankle[side].x + out * st.get("stance_width", 0.0) * s
+	shift = st["stance_shift"] * s
+	hs = st["strike"]
+	to = st["toe_off"]
+	rs = st["roll_start"]
+	if q < d:
+		u = q / d
+		off = D * (0.5 - u) - shift          # along walk_dir: ahead at touchdown, behind at lift-off
+		if u < 0.2:
+			psi = hs * (1.0 - _smooth(0.0, 0.2, u))
+		elif u > rs:
+			psi = to * _smooth(rs, 1.0, u)
+		else:
+			psi = 0.0
+		y, z = R.stance_ankle(my * off, psi)
+		return cx + mx * off, y, z, psi, True
+	u = (q - d) / (1.0 - d)
+	mt = -v * (1.0 - d) * T * st["swing_match"]   # leaves / lands moving with the ground
+	off = _hermite(-D * 0.5 - shift, D * 0.5 - shift, mt, mt, u)
+	psi = to + (hs - to) * _smooth(0.1, 0.9, u)
+	lift = st["lift"] * s
+	c = lift * math.sin(math.pi * (u ** st["lift_skew"])) ** st["lift_pow"]
+	y_flat = my * off
+	# the pitch pivot (heel / toe) only matters on the ground; in the air keep the ankle on the path
+	return cx + mx * off, y_flat, c - R.lowest_rel(psi), psi, False
+
+
+def _dir_upper(st, ph):
+	"""Directional walk pose without legs (lean, a little hip twist, relaxed arms) and the two foot
+	targets."""
+	from mathutils import Vector
+	a = TAU * ph
+	c1 = math.cos(a)
+	mx, my = st["walk_dir"]
+	p = pose(hips=(0, 0, st["hip_twist"] * c1 * (1.0 if my <= 0.0 else -1.0)), spine=(st["lean"], 0, -3 * c1 * abs(my)),
+		neck=(-st["lean"] * 0.35, 0, 0), head=(-st["lean"] * 0.35, 0, 0))
+	if abs(mx) > 0.5:
+		# side steps: lean a little into the movement, a small sway toward the planted foot
+		p = add(p, pose(spine=(0, -3.0 * mx, 0), hips=(0, 2.0 * mx * c1, 0)))
+	p = add(p, _run_arms(st, c1 * abs(my) + 0.25 * c1 * abs(mx)))
+	body = _fin(st, p, loco=True, carry=True)
+	for b in ("upper_leg", "lower_leg", "foot"):
+		for side in ("l", "r"):
+			body.pop(b + "_" + side, None)
+	targets = {}
+	for side, off in (("r", 0.0), ("l", 0.5)):
+		x, y, z, psi, planted = _dir_foot(st, (ph + off) % 1.0, side)
+		targets[side] = (Vector((x, y, z)), psi, planted)
+	return body, targets
+
+
+def _dir_bob(st):
+	"""Hips height over a directional walk cycle: crouch + bounce, limited so the planted legs reach
+	their feet (sideways reach included), smoothed (see _run_bob)."""
+	cache = st.get("_dir_bob_table")
+	if cache is not None:
+		return cache
+	R = st["rig"]
+	s = st["s"]
+	n = 120
+	lim = []
+	want = []
+	for i in range(n):
+		ph = i / n
+		body, targets = _dir_upper(st, ph)
+		G0 = fk(R.arm, body)
+		m = math.inf
+		for side in ("l", "r"):
+			t, _psi, planted = targets[side]
+			if not planted:
+				continue
+			H = G0["hips"] @ R.hip[side]
+			r = st["reach_k"] * R.leg
+			h2 = r * r - (t.x - H.x) ** 2 - (t.y - H.y) ** 2
+			m = min(m, t.z + math.sqrt(max(0.0, h2)) - H.z)
+		lim.append(m)
+		want.append((st["crouch"] - st["bounce"] * math.cos(2.0 * (TAU * ph - math.pi * st["duty"]))) * s)
+	bob = [min(w, l) for w, l in zip(want, lim)]
+	k = 6
+	for _ in range(3):
+		bob = [sum(bob[(i + j) % n] for j in range(-k, k + 1)) / (2 * k + 1) for i in range(n)]
+	bob = [min(b, l) for b, l in zip(bob, lim)]
+	st["_dir_bob_table"] = bob
+	return bob
+
+
+def _dir_ik(st, ph):
+	R = st["rig"]
+	table = _dir_bob(st)
+	n = len(table)
+	x = (ph % 1.0) * n
+	i = int(x)
+	f = x - i
+	bob = table[i % n] * (1.0 - f) + table[(i + 1) % n] * f
+	body, targets = _dir_upper(st, ph)
+	hl = body.get("loc:hips", (0.0, 0.0, 0.0))
+	body["loc:hips"] = (hl[0], hl[1], hl[2] + bob)
+	G = fk(R.arm, body)
+	for side in ("l", "r"):
+		t, psi, _planted = targets[side]
+		(up, kn, ft), _err = R.solve_leg_3d(G["hips"], side, t, psi)
+		body["upper_leg_" + side] = up
+		body["lower_leg_" + side] = kn
+		body["foot_" + side] = ft
+	return body
+
+
+def _dir_walk(style, extra):
+	st = _st(style)
+	st.update(extra)
+	if st["hover"] > 0.0 or st.get("rig") is None:
+		return walk(style)
+	dur = st["run_frames"] / FPS
+	return sample(lambda ph: _dir_ik(st, ph), dur, step=1)
+
+
+def walk_back(style):
+	return _dir_walk(style, WALK_BACK_STYLE)
+
+
+def walk_right(style):
+	return _dir_walk(style, dict(WALK_SIDE_STYLE, walk_dir=(-1.0, 0.0)))
+
+
+def walk_left(style):
+	return _dir_walk(style, dict(WALK_SIDE_STYLE, walk_dir=(1.0, 0.0)))
 
 
 def channel(style):
@@ -599,7 +777,8 @@ def die(style):
 
 
 def dodge(style):
-	"""Forward roll in place (the code moves the actor 6 m in 0.35 s)."""
+	"""Forward roll in place, 0.55 s: a quick tumble in the first 40% (the code moves the actor fast
+	then decelerates, 5 m in all), then a slower rise back to the stance."""
 	st = _st(style)
 	r = stance(st)
 	s = st["s"]
@@ -616,11 +795,51 @@ def dodge(style):
 		return add(curl, {"root": (deg, 0, 0), "loc:root": (off.x, off.y, off.z)}, _loc(st, "hips", 0, 0, drop))
 	crouch = add(r, pose(spine=(35, 0, 0), chest=(10, 0, 0), head=(10, 0, 0), upper_arm_s=(-50, 8, 0), lower_arm_s=(-40, 0, 0),
 		upper_leg_s=(-60, 6, 0), lower_leg_s=(90, 0, 0), foot_s=(-30, 0, 0)), _loc(st, "hips", 0, 0, -0.32))
-	keys = [(0.0, r), (0.05, crouch), (0.1, rolled(60, -0.3)), (0.155, rolled(150, -0.3)), (0.21, rolled(240, -0.3)),
-		(0.265, rolled(320, -0.3)), (0.31, add(crouch, pose(spine=(-10, 0, 0)))), (0.4, r)]
+	rise = add(crouch, pose(spine=(-10, 0, 0)))
+	keys = [(0.0, r), (0.035, crouch), (0.075, rolled(60, -0.3)), (0.12, rolled(150, -0.3)), (0.165, rolled(240, -0.3)),
+		(0.215, rolled(320, -0.3)), (0.3, rise), (0.42, lerp(rise, r, 0.6)), (0.55, r)]
 	keys = _seq(st, keys, stabilize_mid=False)
 	# Feet on the floor when upright (crouch / stand), never below it while rolling.
-	return _floor_keys(st, keys, feet_until=0.4, rest_from=9.0, upright_only=True)
+	return _floor_keys(st, keys, feet_until=0.55, rest_from=9.0, upright_only=True)
+
+
+def _guard(st, r):
+	"""The parry guard: a low stance, the blade raised diagonally across the body, the off hand forward."""
+	return add(r, pose(spine=(10, 0, -10), chest=(-2, 0, -12), neck=(0, 0, 8), head=(-4, 0, 10),
+		upper_arm_r=GUARD_ARM_R, lower_arm_r=GUARD_FOREARM_R, hand_r=GUARD_HAND_R,
+		upper_arm_l=(-55, 0, 30), lower_arm_l=(-55, 0, 0),
+		upper_leg_r=(-24, 6, 0), lower_leg_r=(36, 0, 0), foot_r=(-8, 0, 0),
+		upper_leg_l=(-4, -6, 0), lower_leg_l=(26, 0, 0), foot_l=(-14, 0, 0)), _loc(st, "hips", 0, 0.02, -0.09))
+
+
+def parry(style):
+	"""Guard (the player's parry, 0.55 s): snap into a low stance with the blade raised across the
+	body and the off hand forward, hold it (a slight tremble), settle back."""
+	st = _st(style)
+	r = stance(st)
+	guard = _guard(st, r)
+	hold = add(guard, pose(chest=(1.5, 0, -1.5), upper_arm_r=(2, 0, 0), upper_arm_l=(2, 0, 0)))
+	keys = [(0.0, r), (0.07, guard), (0.25, hold), (0.42, guard), (0.55, r)]
+	return _seq(st, keys)
+
+
+def parry_hold(style):
+	"""The guard held (loop, 1.0 s): the parry guard breathing and shifting its weight a little."""
+	st = _st(style)
+	g = _guard(st, stance(st))
+
+	def fn(ph):
+		b = math.sin(TAU * ph)
+		c = math.cos(TAU * ph)
+		p = add(g, pose(chest=(1.2 * b, 0, -1.0 * b), spine=(0.6 * b, 0, 0), upper_arm_r=(1.5 * b, 0, 0),
+			upper_arm_l=(1.2 * c, 0, 0), head=(0.8 * b, 0, 0)), _loc(st, "hips", 0, 0, -0.006 * (1.0 - c)))
+		return _fin(st, p, loco=False)
+	return sample(fn, 1.0, step=2)
+
+
+GUARD_ARM_R = (-30, 0, 45)
+GUARD_FOREARM_R = (-50, 0, 0)
+GUARD_HAND_R = (60, -15, 30)
 
 
 def roar(style):
@@ -654,4 +873,6 @@ def talk(style):
 
 BUILDERS = {"idle": idle, "run": run, "attack_slash": attack_slash, "attack_slam": attack_slam,
 	"attack_stab": attack_stab, "shoot_bow": shoot_bow, "shoot_crossbow": shoot_crossbow, "cast": cast,
-	"cast_area": cast_area, "channel": channel, "hit": hit, "die": die, "dodge": dodge, "roar": roar, "talk": talk}
+	"cast_area": cast_area, "channel": channel, "hit": hit, "die": die, "dodge": dodge, "roar": roar, "talk": talk,
+	"parry": parry, "parry_hold": parry_hold, "walk": walk, "walk_back": walk_back, "walk_left": walk_left,
+	"walk_right": walk_right}

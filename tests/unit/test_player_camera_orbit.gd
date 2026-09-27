@@ -1,6 +1,7 @@
 extends TestCase
-## Free camera: middle-mouse orbit (yaw / pitch), limits, reset, the F2 camera info overlay (text,
-## wider zoom range) and camera-relative movement. OWNER: player.
+## Free camera: right-mouse orbit (yaw / pitch), limits, reset, the F2 camera info overlay (text,
+## wider zoom range) and camera-relative movement; the right button no longer uses a skill.
+## OWNER: player.
 
 
 func _exit_tree() -> void:
@@ -49,3 +50,39 @@ func test_orbit_and_info() -> void:
 	rig.reset_view()
 	assert_near(rig.yaw_deg, CameraRig.YAW_DEG, 0.001, "reset yaw")
 	assert_near(rig.pitch_deg, CameraRig.PITCH_DEG, 0.001, "reset pitch")
+
+
+func _mouse_button(button: MouseButton, pressed: bool) -> InputEventMouseButton:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = button
+	ev.pressed = pressed
+	ev.position = Vector2(400, 300)
+	return ev
+
+
+func test_right_mouse_orbits_and_bindings() -> void:
+	var w := await make_world()
+	var p := spawn_player(Vector3.ZERO)
+	var rig := CameraRig.new()
+	rig.target = p
+	w.add_child(rig)
+	p.camera_rig = rig
+	await get_tree().process_frame
+	assert_eq(CameraRig.ORBIT_BUTTON, MOUSE_BUTTON_RIGHT, "right mouse orbits")
+	rig._unhandled_input(_mouse_button(MOUSE_BUTTON_RIGHT, true))
+	assert_true(rig._orbiting, "orbiting while the right button is held")
+	var y0 := rig.yaw_deg
+	var mm := InputEventMouseMotion.new()
+	mm.relative = Vector2(-40, 0)
+	rig._unhandled_input(mm)
+	assert_near(rig.yaw_deg, y0 + 10.0, 0.001, "dragging turns the camera")
+	rig._unhandled_input(_mouse_button(MOUSE_BUTTON_RIGHT, false))
+	assert_false(rig._orbiting, "released")
+	rig._unhandled_input(_mouse_button(MOUSE_BUTTON_MIDDLE, true))
+	assert_false(rig._orbiting, "the middle button no longer orbits")
+	# Skill slot 2 moved to the middle button; the right button uses no skill; parry is on Shift.
+	for action in Controls.SKILL_ACTIONS:
+		assert_false(MOUSE_BUTTON_RIGHT in Controls.BINDINGS[action], "%s is not on the right button" % action)
+	assert_eq(Controls.skill_slot_label(1), "MMB", "slot 2 on the middle button")
+	assert_eq(Controls.label_for("parry"), "Shift", "parry on Shift")
+	assert_true(InputMap.has_action("parry"), "parry action registered")

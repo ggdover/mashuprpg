@@ -12,7 +12,8 @@ extends Node3D
 ##   --only=overview,regions,...  shot names to take (default all): overview, regions (every
 ##                                region: arrival, 2 far spots, from above) or a region id,
 ##                                road, seam (the road from both sides), low, interactables
-##                                (i0..), spots (p0..), boss, dungeon
+##                                (i0..), spots (p0..), boss, dungeon, grass / details (close-ups
+##                                of the densest grass patch / scatter of details)
 ##   --hold=SECONDS               keep the window open after the shots (look around: WASD/arrows
 ##                                move, mouse wheel zooms, Q/E pitch) — handy for manual checks
 ## Prints the build time, layout stats and every saved file. Exit code = number of errors.
@@ -142,6 +143,15 @@ func _preview_zone(act: String, zone: String, seed_value: int, level: int, monst
 	if _want(only, "low"):
 		await _shot_at(w, start, 30.0, 15.0, prefix + "low", true)
 	var de := w.get_dungeon_entrance()
+	# Ground detail: close-ups of the densest grass patch and the densest scatter of details.
+	for key in ["grass", "details"]:
+		if not _want(only, key):
+			continue
+		var list: Array = lay.get(key, [])
+		if list.is_empty():
+			print("[act_preview] no %s" % key)
+			continue
+		await _shot_at(w, _densest(list, 0 if key == "grass" else 1), dp, dd * 0.6, prefix + "%s_close" % key, true)
 	if not de.is_empty() and _want(only, "dungeon"):
 		await _shot_at(w, w.get_region_arrival("dungeon_exit"), dp, dd, prefix + "dungeon", true)
 	var n := 0
@@ -266,6 +276,22 @@ func _shot_at(w: World, focus: Vector3, pitch_deg: float, dist: float, shot_name
 	else:
 		errors += 1
 		push_warning("act_preview: can't save %s (%s)" % [path, error_string(err)])
+
+
+## The centre of the 6 m square holding the most entries of a detail / grass list (x at index xi,
+## z at xi + 1).
+func _densest(list: Array, xi: int) -> Vector3:
+	var counts := {}
+	var best := Vector2i.ZERO
+	var most := 0
+	for e in list:
+		var key := Vector2i(floori(float(e[xi]) / 6.0), floori(float(e[xi + 1]) / 6.0))
+		var c := int(counts.get(key, 0)) + 1
+		counts[key] = c
+		if c > most:
+			most = c
+			best = key
+	return Vector3((best.x + 0.5) * 6.0, 0.0, (best.y + 0.5) * 6.0)
 
 
 func _wait(seconds: float) -> void:

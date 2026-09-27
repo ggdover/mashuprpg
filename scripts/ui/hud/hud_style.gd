@@ -38,8 +38,9 @@ const AILMENTS := {
 	"shock": {"name": "Shocked", "color": Color(1.0, 0.92, 0.3), "desc": "Taking %s%% increased damage"},
 	"chill": {"name": "Chilled", "color": Color(0.45, 0.78, 1.0), "desc": "Action and movement speed %s%% slower"},
 	"freeze": {"name": "Frozen", "color": Color(0.7, 0.92, 1.0), "desc": "Cannot move or act"},
+	"stun": {"name": "Stunned", "color": Color(1.0, 0.82, 0.3), "desc": "Cannot move or act"},
 }
-const AILMENT_ORDER: Array[String] = ["freeze", "shock", "chill", "ignite", "bleed", "poison"]
+const AILMENT_ORDER: Array[String] = ["stun", "freeze", "shock", "chill", "ignite", "bleed", "poison"]
 
 ## Minimap marker kind -> colour.
 const MARKER_COLORS := {
@@ -295,6 +296,10 @@ static func draw_ailment_glyph(ci: CanvasItem, kind: String, c: Vector2, s: floa
 			ci.draw_colored_polygon(bolt, color)
 		"chill":
 			_snowflake(ci, c, s * 0.85, color, 2.2)
+		"stun":
+			for i in 3:
+				var a := -PI * 0.5 + TAU * float(i) / 3.0
+				_star(ci, c + Vector2(cos(a), sin(a)) * s * 0.5, s * 0.42, color)
 		"freeze":
 			var crystal := PackedVector2Array([c + Vector2(0, -0.95) * s, c + Vector2(0.55, -0.2) * s,
 				c + Vector2(0.35, 0.8) * s, c + Vector2(-0.35, 0.8) * s, c + Vector2(-0.55, -0.2) * s])
@@ -303,6 +308,25 @@ static func draw_ailment_glyph(ci: CanvasItem, kind: String, c: Vector2, s: floa
 			ci.draw_polyline(PackedVector2Array([c + Vector2(-0.55, -0.2) * s, c + Vector2(0, 0.1) * s, c + Vector2(0.55, -0.2) * s]), Color(1, 1, 1, 0.5), 1.2, true)
 		_:
 			ci.draw_circle(c, s * 0.5, color)
+
+
+## Five-pointed star (stun).
+static func _star(ci: CanvasItem, c: Vector2, s: float, color: Color) -> void:
+	var pts := PackedVector2Array()
+	for i in 10:
+		var a := -PI * 0.5 + PI * float(i) / 5.0
+		pts.append(c + Vector2(cos(a), sin(a)) * s * (1.0 if i % 2 == 0 else 0.45))
+	ci.draw_colored_polygon(pts, color)
+
+
+## Parry glyph: a round shield with two crossed blades behind it.
+static func draw_parry_glyph(ci: CanvasItem, c: Vector2, s: float, color: Color) -> void:
+	var w := maxf(2.0, s * 0.16)
+	ci.draw_line(c + Vector2(-0.85, -0.85) * s, c + Vector2(0.85, 0.85) * s, Color(color, 0.8), w, true)
+	ci.draw_line(c + Vector2(0.85, -0.85) * s, c + Vector2(-0.85, 0.85) * s, Color(color, 0.8), w, true)
+	ci.draw_circle(c, s * 0.58, Color(0.1, 0.07, 0.04, 0.9))
+	ci.draw_arc(c, s * 0.5, 0.0, TAU, 24, color, maxf(2.0, s * 0.16), true)
+	ci.draw_circle(c, s * 0.16, color)
 
 
 ## Generic buff glyph (buffs without a skill icon): an upward chevron over a shield.

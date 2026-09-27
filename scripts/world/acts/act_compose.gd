@@ -100,6 +100,7 @@ func compose(p_act: String, p_seed: int, p_level: int) -> Dictionary:
 		"split": {"axis": axis, "value": split, "hub_side": hub_side},
 		"profile": profile,
 		"fine_step": fine_step, "fine_rect": _hub_rect_w,
+		"details": details, "grass": grass, "ground_style": ground_style(),
 	}
 	return lay
 
@@ -287,6 +288,8 @@ func _merge_outputs() -> void:
 	glows = []
 	shafts = []
 	tiles = []
+	details = []
+	grass = []
 	interactables = []
 	spawn_groups = []
 	water_areas = []
@@ -296,6 +299,25 @@ func _merge_outputs() -> void:
 		var p: Dictionary = parts[z]
 		var lay: Dictionary = p["layout"]
 		var gen: WorldActGen = p["gen"]
+		var yaw0 := yaw_to_world(p, 0.0)
+		for dd in lay.get("details", []):
+			var wd := to_world(p, Vector3(float(dd[1]), 0.0, float(dd[2])))
+			if not on_side(z, wd.x, wd.z):
+				continue
+			var nd2: Array = (dd as Array).duplicate()
+			nd2[1] = wd.x
+			nd2[2] = wd.z
+			nd2[3] = float(dd[3]) + yaw0
+			details.append(nd2)
+		for g in lay.get("grass", []):
+			var wg := to_world(p, Vector3(float(g[0]), 0.0, float(g[1])))
+			if not on_side(z, wg.x, wg.z):
+				continue
+			var ng: Array = (g as Array).duplicate()
+			ng[0] = wg.x
+			ng[1] = wg.z
+			ng[2] = float(g[2]) + yaw0
+			grass.append(ng)
 		for d in lay["props"]:
 			var w := to_world(p, d["pos"])
 			if not on_side(z, w.x, w.z):
@@ -625,6 +647,36 @@ func ground_color(x: float, z: float) -> Color:
 		var n := WorldActGen.vnoise(x * 0.6, z * 0.6)
 		rc = rc * (0.94 + 0.1 * n)
 		c = c.lerp(rc, 1.0 - smoothstep(half_w - 0.8, half_w + 1.5, d))
+	return c
+
+
+func ground_style() -> String:
+	if parts.has("wilds"):
+		return (parts["wilds"]["gen"] as WorldActGen).ground_style()
+	return super.ground_style()
+
+
+## The zones' material weights, blended across the midline like the colours; the road between
+## the zones is gravel / packed ground (the style's first layer).
+func ground_detail(x: float, z: float) -> Color:
+	var sd := side_distance(x, z)
+	var c: Color
+	if absf(sd) >= BLEND_M or not _hub_rect_w.has_point(Vector2(x, z)):
+		var p := _part_at(x, z)
+		var l := to_local(p, x, z)
+		c = (p["gen"] as WorldActGen).ground_detail(l.x, l.y)
+	else:
+		var lh := to_local(parts["hub"], x, z)
+		var lw := to_local(parts["wilds"], x, z)
+		var ch := (parts["hub"]["gen"] as WorldActGen).ground_detail(lh.x, lh.y)
+		var cw := (parts["wilds"]["gen"] as WorldActGen).ground_detail(lw.x, lw.y)
+		c = cw.lerp(ch, smoothstep(-BLEND_M, BLEND_M, sd))
+	if not _road_box.has_point(Vector2(x, z)):
+		return c
+	var d := _dist_to_segment(Vector3(x, 0, z), cell_center(road_from), cell_center(road_to))
+	var half_w := ROAD_WIDTH_CELLS * TILE * 0.5
+	if d < half_w + 1.5:
+		c.r = maxf(c.r, 0.7 * (1.0 - smoothstep(half_w - 0.8, half_w + 1.5, d)))
 	return c
 
 

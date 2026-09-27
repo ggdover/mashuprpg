@@ -92,7 +92,7 @@ func get_label_count() -> int:
 
 
 ## Show a number. kind: damage type, "player_hurt", "heal", "mana", "xp", "evade", "block",
-## "immune". Returns false when it was skipped (tiny amount).
+## "immune", "parry". Returns false when it was skipped (tiny amount).
 func spawn(pos: Vector3, amount: float, kind: String, is_crit: bool) -> bool:
 	var word := ""
 	match kind:
@@ -102,6 +102,8 @@ func spawn(pos: Vector3, amount: float, kind: String, is_crit: bool) -> bool:
 			word = "Block"
 		"immune":
 			word = "Immune"
+		"parry":
+			word = "Parry!"
 	if word == "" and amount < MIN_AMOUNT:
 		return false
 	var n := _acquire()
@@ -143,6 +145,10 @@ func spawn(pos: Vector3, amount: float, kind: String, is_crit: bool) -> bool:
 			n.life = 0.8
 			n.pop = 1.2
 			rise = 60.0
+		"parry":
+			n.life = 0.9
+			n.pop = 1.5
+			rise = 50.0
 		"player_hurt":
 			n.life = 0.9
 			n.pop = 1.3
@@ -231,6 +237,10 @@ func _label_settings(kind: String, crit: bool) -> LabelSettings:
 			fs = 19
 			ls.font = HudStyle.bold_font()
 			col = Color(0.82, 0.84, 0.88)
+		"parry":
+			fs = 24
+			ls.font = HudStyle.bold_font()
+			col = Color(1.0, 0.82, 0.32)
 	if crit:
 		fs = int(fs * 1.4)
 		outline = 7

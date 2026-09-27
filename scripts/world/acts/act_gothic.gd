@@ -182,6 +182,20 @@ func ground_color(x: float, z: float) -> Color:
 	return Color(lerpf(c.r * v, _snow_lin.r, s), lerpf(c.g * v, _snow_lin.g, s), lerpf(c.b * v, _snow_lin.b, s))
 
 
+## Ground shader layers (gothic): r = wet mud, g = puddles, b = dead leaves, a = soot / grime, from
+## the kinds of the four cells around the vertex (vertices sit on cell corners).
+func ground_detail(x: float, z: float) -> Color:
+	if zone == "hub" or _kind.is_empty():
+		var hn := noise2(x + 7.0, z - 5.0, 0.12, 1)
+		return Color(0.25 * hn, 0.2 * hn, 0.45, 0.35) if _grass.has(Vector2i(floori(x / TILE), floori(z / TILE))) else Color(0.1, 0.25 * hn, 0.1, 0.45)
+	var i := clampi(roundi(x * 0.5), 1, _W - 1)
+	var j := clampi(roundi(z * 0.5), 1, _H - 1)
+	var k := j * _W + i
+	var w: Color = (_DETAIL_BY_KIND[_kind[k]] + _DETAIL_BY_KIND[_kind[k - 1]] + _DETAIL_BY_KIND[_kind[k - _W]] + _DETAIL_BY_KIND[_kind[k - _W - 1]]) * 0.25
+	var n := noise2(x - 31.0, z + 77.0, 0.08, 2)
+	return Color(w.r * (0.4 + 0.9 * n), w.g * (0.3 + 0.9 * (1.0 - n)), w.b, w.a)
+
+
 func ground_height(x: float, z: float) -> float:
 	if zone == "hub" or _depth.is_empty():
 		return 0.0
@@ -617,6 +631,7 @@ func _wilds() -> void:
 	_loot()
 	_monsters()
 	_zone_looks()
+	_ground_fx_wilds()
 
 
 # ------------------------------------------------------------------ the Old Ward (outskirts)
@@ -2432,3 +2447,111 @@ func _ring(c: Vector2, r0: float, r1: float, kind: int, id: String) -> void:
 ## Keep cells within `radius` cells of c free of blocks.
 func _open_disc(c: Vector2, radius: float) -> void:
 	_paint_band(c, c, radius * 2.0, -1, "")
+
+
+# ================================================================== ground detail (WorldGroundFx)
+
+## Ground layers per cell kind (mud, puddles, dead leaves, grime); paved kinds are hidden by tiles.
+const _DETAIL_BY_KIND: Array[Color] = [
+	Color(0.35, 0.2, 0.45, 0.5), Color(0.0, 0.0, 0.0, 0.3), Color(0.0, 0.0, 0.0, 0.3), Color(0.4, 0.25, 0.8, 0.12),
+	Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.0), Color(0.2, 0.0, 0.2, 0.8), Color(0.0, 0.0, 0.0, 0.3),
+	Color(0.0, 0.0, 0.0, 0.3), Color(0.3, 0.2, 0.6, 0.2)]
+const DEAD_LEAVES := [Color(0.22, 0.15, 0.08), Color(0.19, 0.18, 0.1), Color(0.26, 0.16, 0.06), Color(0.11, 0.09, 0.07)]
+const BLOOD := Color(0.26, 0.015, 0.012)
+const GRIME := Color(0.03, 0.028, 0.026)
+const PUDDLE_NIGHT := Color(0.045, 0.055, 0.065)
+const WOOD := Color(0.42, 0.3, 0.18)
+const GLASS := Color(0.55, 0.66, 0.66)
+const GRASS_GRAVE := Color(0.14, 0.18, 0.08)
+const GRASS_DEAD := Color(0.26, 0.23, 0.12)
+
+
+## Details and grass of the town: dead leaves blown along the streets, puddles, cracks and grime
+## stains, broken glass under the windows, splinters by the stalls, sheds and carriages, blood
+## under the gallows and around the undertaker's yard, straw in the market, bones and overgrown
+## grass in the cemetery and the yards, weeds between the setts along the house fronts.
+func _ground_fx_wilds() -> void:
+	var paved := [K_STREET, K_PLAZA, K_QUAY, K_DECK, K_PATH]
+	for j in range(1, _H - 1):
+		var z := (j + 0.5) * TILE
+		for i in range(1, _W - 1):
+			var k := j * _W + i
+			if grid.walk[k] == 0:
+				continue
+			var kd := int(_kind[k])
+			var x := (i + 0.5) * TILE
+			var ri := int(region_map[k])
+			var rid := String(regions[ri - 1]["id"]) if ri > 0 and ri <= regions.size() else ""
+			var by_house := _kind[k - 1] == K_BLOCK or _kind[k + 1] == K_BLOCK or _kind[k - _W] == K_BLOCK or _kind[k + _W] == K_BLOCK
+			var r := rng.randf()
+			var p := Vector3(x + rng.randf_range(-0.8, 0.8), 0, z + rng.randf_range(-0.8, 0.8))
+			if kd == K_GRASS:
+				# overgrown graves and yards
+				var gp := noise2(x + 90.0, z - 40.0, 0.15, 2)
+				if gp > 0.45:
+					for q in int(clampf((gp - 0.45) * 40.0, 1.0, 6.0)):
+						var gq := Vector3(x + rng.randf_range(-1.0, 1.0), 0, z + rng.randf_range(-1.0, 1.0))
+						if is_clear(gq, 0.3):
+							add_grass(gq, rng.randf_range(0.7, 1.15), GRASS_GRAVE.lerp(GRASS_DEAD, rng.randf() * 0.6) * rng.randf_range(0.85, 1.1))
+				if r < 0.12:
+					add_detail("leaves", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.9, 1.5), DEAD_LEAVES[rng.randi() % DEAD_LEAVES.size()])
+				elif r < 0.16:
+					add_detail("twigs", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.7, 1.1), Color(0.14, 0.1, 0.07))
+				elif r < 0.18:
+					add_detail("bones", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 0.9), Color(0.7, 0.66, 0.58))
+				continue
+			if not kd in paved:
+				continue
+			var wet := 0.05 if kd == K_QUAY or rid == "canals" else 0.0
+			if by_house and r < 0.1:
+				add_detail("glass", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.5, 0.8), GLASS)
+			elif by_house and r < 0.18:
+				add_grass(p, rng.randf_range(0.4, 0.65), GRASS_DEAD.lerp(GRASS_GRAVE, rng.randf()))
+			elif r < 0.3:
+				add_detail("leaves", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.9, 1.5), DEAD_LEAVES[rng.randi() % DEAD_LEAVES.size()])
+			elif r < 0.37:
+				add_detail("cracks", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.8, 1.5), Color(0.02, 0.02, 0.02))
+			elif r < 0.44:
+				add_detail("stain", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(1.2, 2.2), GRIME)
+			elif r < 0.475 + wet:
+				add_detail("puddle", p, rng.randf() * TAU, Vector2(rng.randf_range(1.2, 2.4), rng.randf_range(0.9, 1.6)), PUDDLE_NIGHT)
+			elif r < 0.49 + wet:
+				add_detail("blood", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.8, 1.4), BLOOD)
+			elif r < 0.505 + wet:
+				add_detail("splinters", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 1.0), WOOD)
+			elif r < 0.515 + wet and rid == "abbey":
+				add_detail("blood", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(1.0, 1.6), BLOOD)
+			elif r < 0.52 + wet and rid == "outskirts":
+				add_detail("straw", p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.7, 1.0), Color(0.4, 0.34, 0.2))
+	# Around particular props: blood under the gallows and by the coffins, splinters and straw by
+	# the stalls, sheds and carriages, glass by the houses' fronts.
+	for d in props:
+		var id := String(d["id"])
+		var pos: Vector3 = d["pos"]
+		match id:
+			"gothic_gallows":
+				_ring_details(pos, "blood", 6, 1.2, 4.0, Vector2(0.9, 1.6), [BLOOD])
+				_ring_details(pos, "splinters", 3, 1.0, 3.0, Vector2(0.7, 1.0), [WOOD])
+			"gothic_coffin":
+				_ring_details(pos, "blood", 1, 1.0, 2.2, Vector2(0.7, 1.1), [BLOOD])
+				_ring_details(pos, "splinters", 2, 1.0, 2.2, Vector2(0.6, 1.0), [WOOD])
+			"gothic_stall":
+				_ring_details(pos, "straw", 4, 1.2, 3.2, Vector2(0.7, 1.1), [Color(0.5, 0.42, 0.24)])
+				_ring_details(pos, "splinters", 2, 1.2, 3.0, Vector2(0.6, 1.0), [WOOD])
+				_ring_details(pos, "leaves", 3, 1.2, 3.4, Vector2(0.8, 1.2), [Color(0.3, 0.3, 0.1), Color(0.4, 0.14, 0.06)])
+			"gothic_shed", "gothic_carriage":
+				_ring_details(pos, "splinters", 3, 1.4, 3.4, Vector2(0.6, 1.0), [WOOD])
+				_ring_details(pos, "straw", 2, 1.4, 3.4, Vector2(0.7, 1.0), [Color(0.46, 0.4, 0.22)])
+			"gothic_dead_tree":
+				_ring_details(pos, "leaves", 4, 0.8, 3.0, Vector2(0.9, 1.4), DEAD_LEAVES)
+				_ring_details(pos, "twigs", 3, 0.8, 3.0, Vector2(0.7, 1.1), [Color(0.12, 0.09, 0.06)])
+
+
+## `n` details of `kind` around pos, between r0 and r1 metres out, on walkable ground.
+func _ring_details(pos: Vector3, kind: String, n: int, r0: float, r1: float, size: Vector2, tints: Array) -> void:
+	for q in n:
+		var a := rng.randf() * TAU
+		var p := pos + Vector3(cos(a), 0, sin(a)) * rng.randf_range(r0, r1)
+		if not is_walkable_cell(world_to_cell(p)):
+			continue
+		add_detail(kind, p, rng.randf() * TAU, Vector2.ONE * rng.randf_range(size.x, size.y), tints[rng.randi() % tints.size()])

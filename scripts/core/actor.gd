@@ -405,7 +405,12 @@ func refill_pools() -> void:
 ## floating numbers, leech/on-hit callbacks, death.
 ## Returns the damage actually dealt (0 when evaded/blocked).
 func take_hit(hit: HitData) -> float:
-	if hit == null or dead or god_mode or invulnerable_time > 0.0:
+	if hit == null or dead:
+		return 0.0
+	# A subclass may catch the hit before anything else (the player's parry, also in god mode).
+	if _intercept_hit(hit):
+		return 0.0
+	if god_mode or invulnerable_time > 0.0:
 		return 0.0
 	var src: Node = hit.source if is_instance_valid(hit.source) else null
 	# Evade (attacks) and block (attacks + projectiles).
@@ -458,6 +463,12 @@ func take_hit(hit: HitData) -> float:
 	if life <= 0.0:
 		die(src)
 	return total
+
+
+## Override: return true to swallow a hit completely (checked first: before god mode,
+## invulnerability and the evade / block rolls). Player: a hit during the parry window.
+func _intercept_hit(_hit: HitData) -> bool:
+	return false
 
 
 ## Unmitigated-by-evasion damage of one type (resistance still applies). Used by DoTs and
@@ -584,6 +595,18 @@ func apply_ailment(kind: String, data: Dictionary) -> void:
 			else:
 				ailments[kind] = {"effect": eff, "duration": dur, "time_left": dur}
 				ailment_changed.emit(kind, true)
+		"stun":
+			# Parry counters: cannot move or act (like freeze, without the ice or an immunity).
+			if ailments.has("stun"):
+				var st: Dictionary = ailments["stun"]
+				st["time_left"] = maxf(float(st["time_left"]), dur)
+				st["duration"] = maxf(float(st["duration"]), dur)
+			else:
+				ailments["stun"] = {"duration": dur, "time_left": dur}
+				velocity = Vector3.ZERO
+				if skill_runner != null and is_instance_valid(skill_runner):
+					skill_runner.cancel()
+				ailment_changed.emit("stun", true)
 		"freeze":
 			if freeze_immune_time > 0.0:
 				return
@@ -651,9 +674,13 @@ func is_frozen() -> bool:
 	return ailments.has("freeze")
 
 
-## False while dead or frozen.
+func is_stunned() -> bool:
+	return ailments.has("stun")
+
+
+## False while dead, frozen or stunned.
 func can_act() -> bool:
-	return not dead and not is_frozen()
+	return not dead and not is_frozen() and not ailments.has("stun")
 
 
 ## Current chill slow (0..0.5; 0.3 max from cold hits).
@@ -733,6 +760,7 @@ func add_buff(id: String, data: Dictionary) -> void:
 		"duration": dur,
 		"time_left": dur if dur > 0.0 else INF,
 		"icon": String(data.get("icon", "")),
+		"desc": String(data.get("desc", "")),
 	}
 	recalculate_stats()
 	buffs_changed.emit()

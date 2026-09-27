@@ -1,7 +1,7 @@
 class_name CameraRig
 extends Node3D
 ## Isometric-style follow camera (perspective, ~50 degree pitch, looking north-west by default;
-## free orbit with the middle mouse button), zoom on mouse wheel, screen
+## free orbit with the right mouse button), zoom on mouse wheel, screen
 ## shake, mouse picking, and the audio listener. Also updates the global shader parameter
 ## "player_world_pos" every frame (wall cut-out shader). OWNER: player (wave 2).
 ## CONTRACT — keep every public member/signature. See docs/ARCHITECTURE.md §11.4.
@@ -58,13 +58,15 @@ var distance: float = float(PRESETS[preset]["distance"])
 var zoom_target: float = float(PRESETS[preset]["distance"])
 var listener: AudioListener3D = null
 
-## Free camera (WoW style): hold the middle mouse button and move the mouse to orbit around the
+## Free camera (WoW style): hold the right mouse button (ORBIT_BUTTON) and move the mouse to orbit around the
 ## player. Current yaw / pitch (degrees); PITCH_DEG / YAW_DEG are the defaults.
 var yaw_deg: float = float(PRESETS[preset]["yaw"])
 var pitch_deg: float = float(PRESETS[preset]["pitch"])
 ## Wheel zoom range (widened while the camera info overlay is shown).
 var min_distance: float = MIN_DISTANCE
 var max_distance: float = MAX_DISTANCE
+## The mouse button that orbits the camera while held.
+const ORBIT_BUTTON := MOUSE_BUTTON_RIGHT
 ## Orbit sensitivity (degrees per pixel) and pitch limits.
 const ORBIT_SENSITIVITY := 0.25
 const PITCH_MIN := 5.0
@@ -146,8 +148,8 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Free camera: middle mouse drag orbits.
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_MIDDLE:
+	# Free camera: right mouse drag orbits.
+	if event is InputEventMouseButton and event.button_index == ORBIT_BUTTON:
 		if event.pressed and not _orbiting and not UI.is_mouse_over_ui():
 			_set_orbiting(true)
 			get_viewport().set_input_as_handled()
@@ -259,7 +261,7 @@ func get_camera_info_text() -> String:
 	var pp: Vector3 = t if t != null else _focus
 	var rel := cp - pp
 	return "\n".join([
-		"CAMERA  (F2 hide · middle mouse orbit · wheel zoom · PgUp/PgDn FOV · Home reset · Ctrl+C copy)",
+		"CAMERA  (F2 hide · right mouse orbit · wheel zoom · PgUp/PgDn FOV · Home reset · Ctrl+C copy)",
 		"yaw %.1f°   pitch %.1f°   distance %.2f m   FOV %.0f°   focus height %.2f m" % [yaw_deg, pitch_deg, distance, camera.fov if camera != null else FOV, FOCUS_HEIGHT],
 		"camera position  (%.2f, %.2f, %.2f)" % [cp.x, cp.y, cp.z],
 		"camera offset from player  (%.2f, %.2f, %.2f)   height above ground %.2f m" % [rel.x, rel.y, rel.z, cp.y],

@@ -180,7 +180,7 @@ def _report_grips(arm, a, ts):
 		print("[grip]    " + o)
 
 
-LOOPS = ("idle", "run", "channel")
+LOOPS = ("idle", "run", "channel", "walk", "walk_back", "walk_left", "walk_right", "parry_hold")
 NO_GROUND = ("die", "dodge")   # these handle the floor themselves (cc_anim.die / dodge)
 
 
@@ -224,7 +224,7 @@ def build_character(cid, opts):
 			if hi > 0.002:
 				notes.append("%s lifted up to %.3f between keys" % (name, hi))
 		elif not hover and has_feet:
-			lo, hi = cc_ground.bake_ground(arm, act, skin, loop=name in LOOPS, soft=0.045 if name == "run" else 0.0)
+			lo, hi = cc_ground.bake_ground(arm, act, skin, loop=name in LOOPS, soft=0.045 if name in ("run", "walk", "walk_back", "walk_left", "walk_right") else 0.0)
 			if max(abs(lo), abs(hi)) > 0.05:
 				notes.append("%s snap %.3f..%.3f" % (name, lo, hi))
 	arm.animation_data.action = None

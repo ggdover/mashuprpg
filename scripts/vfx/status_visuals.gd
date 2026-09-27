@@ -1,7 +1,8 @@
 class_name StatusVisuals
 extends Node3D
 ## Visual feedback for ailments on any Actor: burning flames (ignite), blue tint + frost (chill),
-## ice shell (freeze), sparks (shock), green bubbles (poison), red drips (bleed).
+## ice shell (freeze), sparks (shock), green bubbles (poison), red drips (bleed), circling stars
+## (stun).
 ## Player and Enemy call StatusVisuals.attach(self) in _ready(); it listens to
 ## Actor.ailment_changed. OWNER: skills (wave 2). CONTRACT — keep the public signature.
 ##
@@ -10,7 +11,7 @@ extends Node3D
 ## detach() disconnects and frees it. Ailments already present when attached are shown at once.
 ## The model's materials are never touched (hit flashes own the material overlay).
 
-const KINDS: Array[String] = ["ignite", "chill", "freeze", "shock", "poison", "bleed"]
+const KINDS: Array[String] = ["ignite", "chill", "freeze", "shock", "poison", "bleed", "stun"]
 const COLORS := {
 	"ignite": Color(1.0, 0.5, 0.15),
 	"chill": Color(0.55, 0.82, 1.0),
@@ -18,6 +19,7 @@ const COLORS := {
 	"shock": Color(1.0, 0.95, 0.35),
 	"poison": Color(0.45, 0.95, 0.3),
 	"bleed": Color(0.75, 0.05, 0.08),
+	"stun": Color(1.0, 0.85, 0.35),
 }
 
 var actor: Actor = null
@@ -147,6 +149,21 @@ func _show(kind: String) -> void:
 			var pr := VfxUtil.ground_node(r * 2.1, {"color": c, "energy": 1.5, "radius": 0.75, "thickness": 0.14, "swirl": 1.0, "fill": 0.25, "fill_radius": 0.75})
 			root.add_child(pr)
 			_materials["poison"] = pr.material_override
+		"stun":
+			# Little stars circling over the head (spun in _process).
+			var spin := Node3D.new()
+			spin.position = Vector3(0, h * 1.02 + 0.15, 0)
+			root.add_child(spin)
+			var sm := VfxUtil.glow_material(c, 3.0)
+			for i in 4:
+				var a := TAU * float(i) / 4.0
+				var star := VfxUtil.mesh_node(VfxUtil.sphere_mesh(4), sm)
+				star.scale = Vector3.ONE * 0.11
+				star.position = Vector3(sin(a), 0.06 * sin(a * 2.0), cos(a)) * maxf(0.35, r * 0.9)
+				spin.add_child(star)
+			VfxUtil.particles(spin, c, {"amount": 8, "lifetime": 0.5, "speed": Vector2(0.1, 0.4), "gravity": 0.0, "spread": 180.0,
+				"size": 0.06, "emit_radius": maxf(0.35, r * 0.9), "one_shot": false, "energy": 3.0})
+			_materials["stun_spin"] = spin
 		"bleed":
 			VfxUtil.particles(root, c, {"amount": 10, "lifetime": 0.6, "speed": Vector2(0.2, 0.8), "gravity": -9.0, "spread": 40.0,
 				"direction": Vector3.DOWN, "size": 0.09, "emit_radius": r * 0.7, "one_shot": false, "additive": false}, Vector3(0, h * 0.55, 0))
@@ -164,6 +181,8 @@ func _hide(kind: String, animate: bool) -> void:
 	_materials.erase(kind)
 	if kind == "shock":
 		_arcs.clear()
+	if kind == "stun":
+		_materials.erase("stun_spin")
 	if kind == "freeze":
 		_materials.erase("freeze_grow")
 		if animate and actor != null and is_instance_valid(actor) and actor.is_inside_tree():
@@ -184,6 +203,10 @@ func _process(delta: float) -> void:
 		(_materials["shock"] as ShaderMaterial).set_shader_parameter("spin", _time * 5.0)
 	if _materials.has("poison"):
 		(_materials["poison"] as ShaderMaterial).set_shader_parameter("spin", _time * 2.0)
+	if _materials.has("stun_spin"):
+		var sp: Node3D = _materials["stun_spin"]
+		if is_instance_valid(sp):
+			sp.rotation.y += delta * 5.0
 	if _materials.has("freeze_grow"):
 		var g: Node3D = _materials["freeze_grow"]
 		if is_instance_valid(g):

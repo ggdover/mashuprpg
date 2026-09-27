@@ -306,6 +306,7 @@ func _hub() -> void:
 	scatter({"desert_palm_a": 3.0, "desert_palm_b": 2.0}, 40, Rect2(64, -10, 60, 90), {"min_dist": 4.5, "scale": Vector2(0.85, 1.15), "sway": 0.45, "sway_base": 2.0})
 	scatter({"desert_palm_a": 1.0, "desert_palm_b": 1.0}, 14, Rect2(-40, 0, 44, 70), {"min_dist": 5.0, "sway": 0.45, "sway_base": 2.0})
 	scatter(["desert_rock"], 18, Rect2(-50, -80, 190, 200), {"min_dist": 12.0, "margin": 6.0, "scale": Vector2(0.8, 1.5)})
+	_ground_fx_hub()
 
 
 # ------------------------------------------------------------------ wilds: the outdoor zones
@@ -361,6 +362,9 @@ func _wilds() -> void:
 	refresh_open_field()
 	_populate()
 	prof["monsters"] = (Time.get_ticks_usec() - t0) / 1000.0
+	t0 = Time.get_ticks_usec()
+	_ground_fx_wilds()
+	prof["ground_fx"] = (Time.get_ticks_usec() - t0) / 1000.0
 
 
 # ------------------------------------------------------------------ fields
@@ -1952,6 +1956,33 @@ func ground_color(x: float, z: float) -> Color:
 	return _wilds_color(x, z)
 
 
+## Ground shader layers (desert): r = pebbles, g = sandstone slabs, b = sand bricks, a = dried
+## cracked mud (wet by the water). Uses the field sampled by ground_height / ground_color.
+func ground_detail(x: float, z: float) -> Color:
+	if zone == "hub":
+		var wk := _walk_at(x, z)
+		var nh := noise2(x + 5.0, z - 3.0, 0.1, 1)
+		return Color(wk * (0.2 + 0.4 * nh), 0.0, wk * 0.45 * smoothstep(0.45, 0.7, noise2(x - 9.0, z + 2.0, 0.08, 1)), 0.0)
+	if _fa.is_empty():
+		return Color(0, 0, 0, 0)
+	if x != _cx or z != _cz:
+		_wilds_height(x, z)
+	var f := _cf
+	var ri := 0
+	if x >= 0.0 and z >= 0.0 and x < _gw * TILE and z < _gh * TILE:
+		ri = int(region_map[int(z * 0.5) * _gw + int(x * 0.5)])
+	var look: Vector4 = _DET_LOOK.get(_region_ids_by_index[ri] if ri < _region_ids_by_index.size() else "", _DET_LOOK[""])
+	var n := noise2(x + 17.0, z + 41.0, 0.06, 2)
+	var n2 := noise2(x - 83.0, z + 12.0, 0.035, 2)
+	var dry := smoothstep(0.8, 2.6, f.r)          # away from the water
+	var fert := f.a * (1.0 - smoothstep(0.8, 2.6, f.g))
+	var pebbles := (f.b * 0.55 + look.x * smoothstep(0.5, 0.75, n)) * dry * (1.0 - fert)
+	var slabs := look.y * smoothstep(0.52, 0.72, n2) * dry * (1.0 - fert)
+	var bricks := look.z * smoothstep(0.55, 0.75, noise2(x + 211.0, z - 57.0, 0.05, 2)) * dry * (1.0 - fert)
+	var mud := (1.0 - smoothstep(-0.4, 4.5, f.r)) + fert * 0.35 + look.w * 0.5 * smoothstep(0.4, 0.7, n)
+	return Color(clampf(pebbles, 0.0, 1.0), clampf(slabs, 0.0, 1.0), clampf(bricks, 0.0, 1.0), clampf(mud, 0.0, 1.0))
+
+
 func ground_height(x: float, z: float) -> float:
 	if zone != "hub":
 		return _wilds_height(x, z)
@@ -2201,3 +2232,124 @@ func border_style() -> Dictionary:
 			"desert_obelisk_fallen", "desert_head", "desert_tent", "desert_fountain", "desert_temple", "desert_gateway",
 			"desert_portico", "desert_mudhouse", "desert_mesa", "desert_anubis", "desert_jackal", "desert_serpent", "desert_well"],
 	}
+
+
+# ================================================================== ground detail (WorldGroundFx)
+
+## Ground layer amounts per zone ("" = open land between the zones): x = pebble patches, y =
+## sandstone slabs, z = buried brick patches, w = extra mud.
+const _DET_LOOK := {
+	"": Vector4(0.35, 0.25, 0.1, 0.0), "outskirts": Vector4(0.45, 0.3, 0.3, 0.0), "oasis": Vector4(0.2, 0.1, 0.05, 0.3),
+	"isles": Vector4(0.1, 0.0, 0.05, 0.8), "graveyard": Vector4(0.6, 0.65, 0.6, 0.0), "courtyard": Vector4(0.3, 0.7, 0.8, 0.0),
+}
+## Region ids by region_map index (0 = none).
+var _region_ids_by_index: Array = [""]
+const DRY_GRASS := Color(0.5, 0.4, 0.17)
+const GREEN_GRASS := Color(0.2, 0.34, 0.08)
+const REED_GREEN := Color(0.24, 0.36, 0.1)
+const SAND_DRIFT := Color(0.86, 0.68, 0.44)
+const BRICK_TINT := Color(0.8, 0.58, 0.36)
+
+
+## Details and grass of the outdoor zones: sand drifts and cracks on the paving, brick rubble by
+## the ruins and tombs, pebbles, bones, fallen palm fronds; dry desert grass on the sand, green
+## grass and reeds by the water, the oasis and the isles.
+func _ground_fx_wilds() -> void:
+	_region_ids_by_index = [""]
+	for r in regions:
+		_region_ids_by_index.append(String(r["id"]))
+	var tiled := {}
+	for tg in tiles:
+		for c in tg.get("cells", []):
+			tiled[c] = true
+	var wk := grid.walk
+	for j in range(1, _gh - 1):
+		var z := (j + 0.5) * TILE
+		for i in range(1, _gw - 1):
+			var k := j * _gw + i
+			var x := (i + 0.5) * TILE
+			var c := Vector2i(i, j)
+			var f: Color = _fa[k]
+			var ri := int(region_map[k])
+			var rid: String = _region_ids_by_index[ri] if ri < _region_ids_by_index.size() else ""
+			var walk := wk[k] == 1
+			var r := rng.randf()
+			if f.r < 0.0:
+				# reeds in the shallows next to walkable ground
+				if f.r > -2.5 and _near_walk_d(i, j) and rng.randf() < 0.3:
+					add_grass(Vector3(x + rng.randf_range(-0.9, 0.9), 0, z + rng.randf_range(-0.9, 0.9)), rng.randf_range(0.75, 1.1),
+						REED_GREEN.lerp(DRY_GRASS, rng.randf() * 0.3), "reeds")
+				continue
+			if not walk:
+				continue
+			if tiled.has(c):
+				# paving: drifted sand, cracks, a chip of stone
+				if r < 0.09 + (0.06 if rid == "courtyard" else 0.0):
+					add_detail("sand", _jit_d(x, z), rng.randf() * TAU, Vector2(rng.randf_range(1.4, 2.6), rng.randf_range(1.0, 1.8)), SAND_DRIFT)
+				elif r < 0.15:
+					add_detail("cracks", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.8, 1.6), Color(0.1, 0.07, 0.05))
+				elif r < 0.17:
+					add_detail("bricks", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 0.9), BRICK_TINT)
+				continue
+			var fert := f.a
+			var near_water := f.r < 5.0
+			# --- grass
+			if fert > 0.25 or near_water:
+				var gp := noise2(x + 300.0, z + 90.0, 0.14, 2)
+				if gp > 0.5 - fert * 0.2:
+					var dens := int(clampf((gp - 0.5 + fert * 0.2) * 40.0, 1.0, 7.0))
+					for q in dens:
+						var p := _jit_d(x, z)
+						if is_clear(p, 0.3):
+							add_grass(p, rng.randf_range(0.8, 1.2), GREEN_GRASS.lerp(DRY_GRASS, rng.randf() * 0.35) * rng.randf_range(0.85, 1.12))
+			elif rid != "courtyard" and noise2(x - 140.0, z + 60.0, 0.09, 2) > 0.66 and rng.randf() < 0.45:
+				for q in rng.randi_range(1, 3):
+					var p2 := _jit_d(x, z)
+					if is_clear(p2, 0.3):
+						add_grass(p2, rng.randf_range(0.55, 0.9), DRY_GRASS * rng.randf_range(0.85, 1.15))
+			# --- details
+			if rid == "graveyard" or rid == "courtyard":
+				if r < 0.05:
+					add_detail("bricks", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.7, 1.1), BRICK_TINT * rng.randf_range(0.85, 1.1))
+				elif r < 0.075:
+					add_detail("bones", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 0.9), Color(0.86, 0.8, 0.68))
+				elif r < 0.1:
+					add_detail("pebbles", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 1.0), Color(0.78, 0.62, 0.44))
+				elif r < 0.11 and rid == "courtyard":
+					add_detail("stain", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(1.0, 1.8), Color(0.25, 0.12, 0.08))
+				continue
+			if r < 0.025:
+				add_detail("pebbles", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 1.0), Color(0.74, 0.58, 0.4))
+			elif r < 0.032 and not near_water:
+				add_detail("bones", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 0.9), Color(0.86, 0.8, 0.68))
+			elif r < 0.045 and (rid == "oasis" or fert > 0.4):
+				add_detail("leaves", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(1.0, 1.6), Color(0.46, 0.4, 0.16))
+			elif r < 0.05 and near_water:
+				add_detail("puddle", _jit_d(x, z), rng.randf() * TAU, Vector2(rng.randf_range(1.0, 2.0), rng.randf_range(0.8, 1.4)), Color(0.3, 0.36, 0.36))
+			elif r < 0.058 and rid == "outskirts":
+				add_detail("bricks", _jit_d(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 1.0), BRICK_TINT)
+
+
+func _jit_d(x: float, z: float) -> Vector3:
+	return Vector3(x + rng.randf_range(-0.8, 0.8), 0, z + rng.randf_range(-0.8, 0.8))
+
+
+func _near_walk_d(i: int, j: int) -> bool:
+	var wk := grid.walk
+	var k := j * _gw + i
+	return wk[k - 1] == 1 or wk[k + 1] == 1 or wk[k - _gw] == 1 or wk[k + _gw] == 1
+
+
+## The town: sand blown onto the plaza's paving, a few cracks, pebbles and straw by the market,
+## dry grass tufts in the dunes by the walls.
+func _ground_fx_hub() -> void:
+	var tiled := {}
+	for tg in tiles:
+		for c in tg.get("cells", []):
+			tiled[c] = true
+	var on_tiles := func(p: Vector3) -> bool: return tiled.has(world_to_cell(p))
+	scatter_details("sand", 26, Rect2(HUB_X0, HUB_Z0, HUB_X1 - HUB_X0, HUB_Z1 - HUB_Z0), {"filter": on_tiles, "size": Vector2(1.2, 2.4), "stretch": 1.6, "tint": SAND_DRIFT, "clear": 0.8})
+	scatter_details("cracks", 14, Rect2(HUB_X0, HUB_Z0, HUB_X1 - HUB_X0, HUB_Z1 - HUB_Z0), {"filter": on_tiles, "size": Vector2(0.8, 1.4), "tint": Color(0.12, 0.08, 0.05)})
+	scatter_details({"straw": 2.0, "pebbles": 1.0}, 16, Rect2(HUB_X0, HUB_Z0, HUB_X1 - HUB_X0, HUB_Z1 - HUB_Z0), {"size": Vector2(0.6, 1.0),
+		"tints": [Color(0.7, 0.58, 0.32), Color(0.76, 0.62, 0.44)], "clear": 0.8})
+	scatter_grass(20, 5, Rect2(-40, -60, 150, 180), {"on": "void", "radius": Vector2(0.8, 1.8), "scale": Vector2(0.55, 0.9), "tints": [DRY_GRASS, DRY_GRASS * 1.15]})

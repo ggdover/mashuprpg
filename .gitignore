@@ -2,3 +2,5 @@
 .godot/
 # Python bytecode (Blender scripts)
 __pycache__/
+# Exported builds (godot --export-release)
+build/

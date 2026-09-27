@@ -15,12 +15,14 @@ const BINDINGS := {
 	"move_left": [KEY_A, KEY_LEFT],
 	"move_right": [KEY_D, KEY_RIGHT],
 	"skill_1": [MOUSE_BUTTON_LEFT],
-	"skill_2": [MOUSE_BUTTON_RIGHT],
+	# The right mouse button orbits the camera (CameraRig), so slot 2 is on the middle button.
+	"skill_2": [MOUSE_BUTTON_MIDDLE],
 	"skill_3": [KEY_Q],
 	"skill_4": [KEY_E],
 	"skill_5": [KEY_R],
 	"skill_6": [KEY_F],
 	"dodge": [KEY_SPACE],
+	"parry": [KEY_SHIFT],
 	"potion_life": [KEY_1],
 	"potion_mana": [KEY_2],
 	"town_portal": [KEY_T],
@@ -53,6 +55,9 @@ const _MOUSE_LABELS := {
 	MOUSE_BUTTON_WHEEL_UP: "Wheel Up",
 	MOUSE_BUTTON_WHEEL_DOWN: "Wheel Down",
 }
+const _KEY_LABELS := {
+	KEY_SHIFT: "Shift",
+}
 
 
 func _ready() -> void:
@@ -82,7 +87,7 @@ func label_for(action: String) -> String:
 	var code: int = BINDINGS[action][0]
 	if code < 16:
 		return _MOUSE_LABELS.get(code, "Mouse %d" % code)
-	return OS.get_keycode_string(code as Key)
+	return _KEY_LABELS.get(code, OS.get_keycode_string(code as Key))
 
 
 ## Label for skill-bar slot 0..5.

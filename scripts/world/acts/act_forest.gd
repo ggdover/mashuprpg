@@ -110,6 +110,55 @@ func ground_color(x: float, z: float) -> Color:
 	return _wilds_color(x, z)
 
 
+## Ground shader layers (forest): r = gravel, g = mud / puddles, b = leaf litter, a = moss and
+## needles. The wilds use the field sampled by ground_color (same point) and the zone weights.
+func ground_detail(x: float, z: float) -> Color:
+	if zone == "hub":
+		return _hub_detail(x, z)
+	if _fine.is_empty():
+		return Color(0, 0, 0, 0)
+	var f := _sample(x, z)
+	_look(x, z)
+	var n := noise2(x + 71.0, z - 33.0, 0.09, 1)
+	var wt := _l_w.r
+	var wh := _l_w.g
+	var wg := _l_w.b
+	var wd := _l_w.a
+	var floor_ := 1.0 - f.r
+	# trails: gravel, muddy stretches in the wet zones
+	var wet_zone := 0.25 + 0.45 * wt + 0.35 * wh
+	var gravel := f.g * (0.55 + 0.6 * n) * (1.0 - wet_zone * 0.6) + f.a * 0.45 + wg * 0.18
+	var mud := f.g * (1.0 - n) * wet_zone
+	# shores: mud right by the water
+	if f.b < -0.005:
+		mud = maxf(mud, (1.0 - smoothstep(0.05, 0.9, -f.b)) * 0.95)
+	# peat bogs on the downs, wet dips in the tarn
+	mud = maxf(mud, (wd * 0.6 + wt * 0.4) * smoothstep(0.72, 0.86, noise2(x - 5.0, z + 9.0, 0.05, 2)))
+	# leaves under the birches (outskirts, tarn), fewer elsewhere; some on the open ground
+	var birch := _l_w0 * 0.75 + wt * 1.0 + wh * 0.15 + wg * 0.2 + wd * 0.08
+	var leaves := birch * (floor_ * 0.95 + f.r * 0.45 * smoothstep(0.35, 0.7, noise2(x + 3.0, z + 3.0, 0.07, 2)))
+	# moss and needles under the conifers
+	var conifer := _l_w0 * 0.55 + wt * 0.25 + wh * 1.0 + wg * 0.85 + wd * 0.3
+	var moss := conifer * (floor_ * 0.9 + f.r * 0.3 * n) + f.a * 0.35 * (wh + 0.3)
+	return Color(clampf(gravel, 0.0, 1.0), clampf(mud, 0.0, 1.0), clampf(leaves * (1.0 - f.g), 0.0, 1.0), clampf(moss * (1.0 - f.g * 0.8), 0.0, 1.0))
+
+
+## The village: gravel and mud on the paths and the yard, a muddy shore, leaves at the forest edge.
+func _hub_detail(x: float, z: float) -> Color:
+	if _field.is_empty():
+		return Color(0, 0, 0, 0)
+	var td := _trail_dist(x, z) + (vnoise(x * 0.5, z * 0.5) - 0.5) * 1.2
+	var path := 1.0 - smoothstep(1.0, 2.2, td)
+	var yard := 1.0 - smoothstep(3.0, 6.5, Vector2(x, z).distance_to(Vector2(36, 31)))
+	var n := noise2(x + 11.0, z + 4.0, 0.12, 1)
+	var sz := _shore_z(x)
+	var shore := smoothstep(sz - 4.0, sz - 1.5, z) * (1.0 - smoothstep(sz - 0.2, sz + 1.0, z))
+	var d := _fd(x, z)
+	var forest := smoothstep(1.5, 6.0, d)
+	return Color(clampf((path + yard) * (0.5 + 0.5 * n), 0.0, 1.0), clampf(maxf((path + yard) * (1.0 - n) * 0.45, shore * 0.9), 0.0, 1.0),
+		clampf(forest * 0.85 + (1.0 - forest) * 0.3 * n, 0.0, 1.0), clampf(forest * 0.6, 0.0, 1.0))
+
+
 ## Rolling forest hills (>= 0: dips would fill with water).
 func _hills(x: float, z: float, amp: float) -> float:
 	return maxf(0.0, fbm(x * 0.03 + 3.1, z * 0.03 - 1.7, 3) - 0.38) * amp
@@ -524,6 +573,7 @@ func _hub() -> void:
 	# Sun shafts at the forest edge.
 	for s in [Vector3(6, 0, 10), Vector3(66, 0, 8), Vector3(67, 0, 40), Vector3(4, 0, 40), Vector3(30, 0, 2)]:
 		add_shaft(s, 15.0, 3.2, Color(1.0, 0.94, 0.72), 2.06, 26.0)
+	_ground_fx_hub()
 
 
 ## Distance from a walkable point to the walkable area's edge (m), capped at 6.
@@ -601,6 +651,9 @@ var _l_open := Color()
 var _l_patch := Color()
 var _l_forest := Color()
 var _l_trail := Color()
+## Zone weights of the last _look(): outskirts, and (r, g, b, a) = tarn, hollows, gap, downs.
+var _l_w0 := 1.0
+var _l_w := Color(0, 0, 0, 0)
 ## Last _sample() point and value (World asks for the height, then the colour, of each vertex).
 var _sx := INF
 var _sz := INF
@@ -642,6 +695,7 @@ func _wilds() -> void:
 	_build_looks()
 	_zone_looks()
 	_monsters()
+	_ground_fx_wilds()
 
 
 # ------------------------------------------------------------------ ground look
@@ -677,11 +731,15 @@ func _look(x: float, z: float) -> void:
 		_l_patch = PAL_PATCH[p - 1]
 		_l_forest = PAL_FOREST[p - 1]
 		_l_trail = PAL_TRAIL[p - 1]
+		_l_w0 = 1.0 if p == 1 else 0.0
+		_l_w = Color(1.0 if p == 2 else 0.0, 1.0 if p == 3 else 0.0, 1.0 if p == 4 else 0.0, 1.0 if p == 5 else 0.0)
 		return
 	var fu := clampf(u - i0, 0.0, 1.0)
 	var fv := clampf(v - j0, 0.0, 1.0)
 	var w: Color = _lwt[k].lerp(_lwt[k + 1], fu).lerp(_lwt[k + _lw].lerp(_lwt[k + _lw + 1], fu), fv)
 	var w0 := maxf(0.0, 1.0 - w.r - w.g - w.b - w.a)
+	_l_w0 = w0
+	_l_w = w
 	_l_open = PAL_OPEN[0] * w0 + PAL_OPEN[1] * w.r + PAL_OPEN[2] * w.g + PAL_OPEN[3] * w.b + PAL_OPEN[4] * w.a
 	_l_patch = PAL_PATCH[0] * w0 + PAL_PATCH[1] * w.r + PAL_PATCH[2] * w.g + PAL_PATCH[3] * w.b + PAL_PATCH[4] * w.a
 	_l_forest = PAL_FOREST[0] * w0 + PAL_FOREST[1] * w.r + PAL_FOREST[2] * w.g + PAL_FOREST[3] * w.b + PAL_FOREST[4] * w.a
@@ -2278,3 +2336,137 @@ func border_style() -> Dictionary:
 			"forest_stall", "forest_log", "forest_rack", "forest_fence", "forest_jetty", "forest_longship",
 			"forest_waterfall", "forest_barrow", "forest_woodpile", "forest_rock_slab", "forest_mound", "forest_gate"],
 	}
+
+
+# ================================================================== ground detail (WorldGroundFx)
+
+## Time the ground detail placement took (ms; the preview prints it).
+var ground_fx_ms := 0.0
+## Grass colours (linear-ish tints for the grass shader): meadow, lush, shade, dry, heather.
+const GRASS_MEADOW := Color(0.2, 0.34, 0.07)
+const GRASS_LUSH := Color(0.16, 0.36, 0.06)
+const GRASS_SHADE := Color(0.09, 0.2, 0.05)
+const GRASS_DRY := Color(0.36, 0.34, 0.12)
+const GRASS_HEATHER := Color(0.26, 0.13, 0.2)
+const LEAF_TINTS := [Color(0.62, 0.42, 0.08), Color(0.58, 0.22, 0.06), Color(0.3, 0.17, 0.07), Color(0.48, 0.1, 0.05)]
+
+
+## The wilds: grass patches on the open ground (by zone), reeds on the shores, and details —
+## twigs and pine cones under the trees, pebble clusters on the trails and by the rocks, leaf heaps,
+## puddles on the wet trails, moss on rocky ground, bones on the barrow downs.
+func _ground_fx_wilds() -> void:
+	var t0 := Time.get_ticks_usec()
+	var wk := grid.walk
+	for j in range(1, _fh - 1):
+		var z := (j + 0.5) * TILE
+		for i in range(1, _fw - 1):
+			var k := j * _fw + i
+			var kd := _kind[k]
+			if kd == K_VOID or kd == K_GORGE:
+				continue
+			var x := (i + 0.5) * TILE
+			var c := Vector2i(i, j)
+			var f: Color = _fine[k]
+			if kd == K_WATER:
+				# reeds and sedge in the shallows next to walkable ground
+				if f.b > -0.6 and _near_walk(i, j) and rng.randf() < 0.35:
+					add_grass(Vector3(x + rng.randf_range(-0.8, 0.8), 0, z + rng.randf_range(-0.8, 0.8)), rng.randf_range(0.8, 1.15),
+						GRASS_LUSH.lerp(GRASS_DRY, rng.randf() * 0.35), "reeds")
+				continue
+			if wk[k] == 0 and kd != K_GROVE:
+				continue
+			_look(x, z)
+			var wt := _l_w.r
+			var wh := _l_w.g
+			var wg := _l_w.b
+			var wd := _l_w.a
+			var trail := f.g
+			# --- grass patches (open walkable ground, off the trails)
+			if kd == K_OPEN and trail < 0.25:
+				var gp := noise2(x + 400.0, z - 170.0, 0.13, 2)
+				var thr := 0.56 - 0.08 * wt - 0.06 * wd + 0.1 * wh
+				if gp > thr:
+					# patches: dense in the middle, a few tufts at the rim
+					var dens := int(clampf((gp - thr) * 60.0, 1.0, 8.0))
+					var tint := GRASS_MEADOW * _l_w0 + GRASS_LUSH * wt + GRASS_SHADE * wh + GRASS_DRY * wg + GRASS_DRY.lerp(GRASS_HEATHER, 0.55) * wd
+					for q in dens:
+						var p := Vector3(x + rng.randf_range(-1.0, 1.0), 0, z + rng.randf_range(-1.0, 1.0))
+						if not is_clear(p, 0.3):
+							continue
+						var v := rng.randf_range(0.82, 1.15)
+						var tt := Color(tint.r * v, tint.g * v * rng.randf_range(0.92, 1.08), tint.b * v)
+						if wd > 0.5 and rng.randf() < 0.45:
+							tt = GRASS_HEATHER * v
+						add_grass(p, rng.randf_range(0.75, 1.2) * (0.8 if wd > 0.5 else 1.0), tt)
+			# --- details
+			var r := rng.randf()
+			if trail > 0.3:
+				if r < 0.07:
+					add_detail("pebbles", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.5, 0.9), Color(0.5, 0.47, 0.42))
+				elif r < 0.09 + 0.05 * (wt + wh):
+					add_detail("puddle", _jit(x, z), rng.randf() * TAU, Vector2(rng.randf_range(1.0, 2.2), rng.randf_range(0.8, 1.6)), Color(0.2, 0.24, 0.26))
+				elif r < 0.12:
+					add_detail("twigs", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 1.0), Color(0.2, 0.13, 0.08))
+				continue
+			var edge := _near_void(i, j)
+			if kd == K_GROVE or edge:
+				if r < 0.08:
+					add_detail("twigs", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.7, 1.2), Color(0.2, 0.13, 0.08))
+				elif r < 0.16 + 0.08 * wt:
+					add_detail("leaves", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.8, 1.4), LEAF_TINTS[rng.randi() % LEAF_TINTS.size()])
+				elif r < 0.2 + 0.08 * (wh + wg):
+					add_detail("needles", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.7, 1.2), Color(0.36, 0.2, 0.09))
+				elif r < 0.22 + 0.06 * wh:
+					add_detail("moss", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.8, 1.6), Color(0.12, 0.2, 0.05))
+				continue
+			if r < 0.035 * (_l_w0 + wt):
+				add_detail("leaves", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.7, 1.2), LEAF_TINTS[rng.randi() % LEAF_TINTS.size()])
+			elif r < 0.05 and f.a > 0.05:
+				add_detail("pebbles", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 1.0), Color(0.46, 0.46, 0.44))
+			elif r < 0.058 and wd > 0.5:
+				add_detail("bones", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.6, 0.9), Color(0.78, 0.74, 0.64))
+			elif r < 0.07 and wd > 0.3:
+				add_detail("moss", _jit(x, z), rng.randf() * TAU, Vector2.ONE * rng.randf_range(0.8, 1.5), Color(0.2, 0.18, 0.06))
+	ground_fx_ms = (Time.get_ticks_usec() - t0) / 1000.0
+
+
+## The village: grass on the green (bends as people walk through), reeds along the shore, straw
+## and wood chips in the yard, pebbles on the paths, puddles by the jetty.
+func _ground_fx_hub() -> void:
+	var green := func(p: Vector3) -> bool:
+		return _trail_dist(p.x, p.z) > 2.2 and p.distance_to(Vector3(36, 0, 31)) > 6.5 and p.z < _shore_z(p.x) - 3.0
+	scatter_grass(46, 22, Rect2(10, 8, 52, 40), {"filter": green, "radius": Vector2(1.2, 2.6), "tints": [GRASS_MEADOW, GRASS_LUSH, GRASS_MEADOW.lerp(GRASS_DRY, 0.3)]})
+	scatter_grass(22, 10, Rect2(-10, 44, 92, 18), {"on": "any", "kind": "reeds", "radius": Vector2(0.8, 1.8), "scale": Vector2(0.7, 1.0),
+		"tints": [GRASS_LUSH, GRASS_LUSH.lerp(GRASS_DRY, 0.4)],
+		"filter": func(p: Vector3) -> bool: return absf(p.z - (_shore_z(p.x) - 0.3)) < 1.2 and absf(p.x - 44.0) > 3.0})
+	var on_path := func(p: Vector3) -> bool: return _trail_dist(p.x, p.z) < 1.8
+	scatter_details("pebbles", 40, Rect2(10, -6, 52, 54), {"filter": on_path, "size": Vector2(0.5, 0.9), "tint": Color(0.5, 0.47, 0.42)})
+	scatter_details({"straw": 3.0, "splinters": 1.0}, 30, Rect2(28, 24, 16, 14), {"size": Vector2(0.6, 1.1),
+		"tints": [Color(0.5, 0.42, 0.22), Color(0.45, 0.34, 0.2)]})
+	scatter_details({"splinters": 1.0}, 10, Rect2(18, 14, 44, 14), {"size": Vector2(0.6, 1.0), "tint": Color(0.62, 0.46, 0.28),
+		"filter": func(p: Vector3) -> bool: return _trail_dist(p.x, p.z) < 3.0})
+	scatter_details({"leaves": 2.0, "twigs": 1.0}, 40, Rect2(6, 4, 60, 48), {"size": Vector2(0.7, 1.2), "tints": LEAF_TINTS,
+		"filter": func(p: Vector3) -> bool: return _fd_walk_edge(p) < 2.5})
+	scatter_details("puddle", 5, Rect2(30, 36, 20, 12), {"size": Vector2(1.0, 1.8), "stretch": 1.5, "tint": Color(0.22, 0.26, 0.28),
+		"filter": on_path})
+
+
+func _jit(x: float, z: float) -> Vector3:
+	return Vector3(x + rng.randf_range(-0.8, 0.8), 0, z + rng.randf_range(-0.8, 0.8))
+
+
+## A walkable 4-neighbour?
+func _near_walk(i: int, j: int) -> bool:
+	var wk := grid.walk
+	var k := j * _fw + i
+	return wk[k - 1] == 1 or wk[k + 1] == 1 or wk[k - _fw] == 1 or wk[k + _fw] == 1
+
+
+## A non-walkable 8-neighbour (the edge of the walkable ground)?
+func _near_void(i: int, j: int) -> bool:
+	var wk := grid.walk
+	for dj in range(-1, 2):
+		for di in range(-1, 2):
+			if wk[(j + dj) * _fw + i + di] == 0:
+				return true
+	return false

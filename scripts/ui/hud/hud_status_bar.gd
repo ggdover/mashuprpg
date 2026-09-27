@@ -85,7 +85,7 @@ func _rebuild(actor: Actor) -> void:
 			list.append({"key": "b:" + String(id), "kind": "buff", "id": String(id), "name": String(b.get("name", id)),
 				"icon": Assets.skill_icon(icon_id) if icon_id != "" else null,
 				"time_left": float(b.get("time_left", INF)), "duration": float(b.get("duration", 0.0)),
-				"stacks": 0, "color": HudStyle.BUFF_BORDER, "mods": b.get("mods", []), "data": {}})
+				"stacks": 0, "color": HudStyle.BUFF_BORDER, "mods": b.get("mods", []), "data": {}, "desc": String(b.get("desc", ""))})
 		for kind in HudStyle.AILMENT_ORDER:
 			if not actor.ailments.has(kind):
 				continue
@@ -145,6 +145,8 @@ func get_entry_tooltip(idx: int) -> Array:
 	if is_buff:
 		for m in StatDefs.describe_mods(e["mods"]):
 			lines.append({"text": m, "color": UIStyle.COLOR_MOD, "size": "normal"})
+		if String(e.get("desc", "")) != "":
+			lines.append({"text": String(e["desc"]), "color": UIStyle.COLOR_TEXT, "size": "normal"})
 	else:
 		var d: Dictionary = e["data"]
 		var tpl := String(HudStyle.AILMENTS[e["id"]]["desc"])

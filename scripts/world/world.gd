@@ -60,6 +60,16 @@ var theme: String = ""
 var grid: WorldGrid = null
 ## Static geometry, lights, environment and collision.
 var level_root: Node3D = null
+## Fog of war over the view (WorldFog: far ground darker, unexplored ground nearly black), for
+## towns, dungeons and acts; null in test arenas or when fog_of_war_enabled is off.
+var fog: MeshInstance3D = null
+## Act worlds: the ground's material (WorldGroundFx.ground_material for acts with a ground style)
+## and the details + grass node (WorldGroundFx), else null.
+var ground_material: Material = null
+var ground_fx: WorldGroundFx = null
+## Fog of war for newly built worlds (tools that shoot whole maps turn it off; the debug menu
+## toggles it with set_fog_enabled).
+static var fog_of_war_enabled := true
 ## Portals, gate, merchant, stash, chests, shrines.
 var interactables_root: Node3D = null
 var world_environment: WorldEnvironment = null
@@ -167,8 +177,45 @@ func build(info: Dictionary) -> void:
 		_:
 			theme = "arena"
 			_build_arena(maxi(int(info.get("size", 16)), 2))
+	if id in ["town", "dungeon", "act"]:
+		_setup_fog()
 	build_time_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	build_finished.emit()
+
+
+const WorldFog := preload("res://scripts/world/world_fog.gd")
+
+
+## The fog of war for this area: towns only shade far ground (they are fully explored); dungeons
+## and acts also black out what was never explored; night acts and dungeons shade deeper.
+func _setup_fog() -> void:
+	fog = null
+	if not fog_of_war_enabled or grid == null:
+		return
+	var id := String(area_info.get("id", ""))
+	var params := {}
+	match id:
+		"town":
+			params = {"use_explored": false, "far_dim": 0.22, "fog_color": Color(0.03, 0.03, 0.04)}
+		"dungeon":
+			params = {"far_dim": 0.5, "unexplored_dim": 1.0, "fog_color": Color(0.008, 0.008, 0.012)}
+		_:
+			var day := bool(area_info.get("daylight", ActDefs.get_act(String(area_info.get("act", "desert"))).get("daylight", true)))
+			params = {"far_dim": 0.38 if day else 0.5, "unexplored_dim": 1.0,
+				"fog_color": Color(0.035, 0.035, 0.045) if day else Color(0.01, 0.014, 0.02)}
+	var f := WorldFog.new()
+	level_root.add_child(f)
+	f.setup(self, params)
+	fog = f
+
+
+## Show / hide the fog of war now (and for the worlds built after this).
+func set_fog_enabled(on: bool) -> void:
+	fog_of_war_enabled = on
+	if fog != null and is_instance_valid(fog):
+		fog.visible = on
+	elif on and grid != null and String(area_info.get("id", "")) in ["town", "dungeon", "act"]:
+		_setup_fog()
 
 
 ## Theme by depth: crypt (1-3), cave (4-6), inferno (7-9), then repeating.
@@ -522,6 +569,9 @@ func _clear() -> void:
 	level_root.add_child(_lights_root)
 	grid = null
 	layout = {}
+	fog = null
+	ground_material = null
+	ground_fx = null
 	wall_cells = []
 	_player_start = Vector3.ZERO
 	_spawn_groups = []
@@ -1103,7 +1153,7 @@ func _build_dungeon(depth: int, seed_value: int) -> void:
 		var shrine := WorldShrine.new().setup(layout["shrine"]["kind"])
 		_add_interactable(shrine, grid.cell_center(layout["shrine"]["cell"]), 0.0)
 	_minimap_cells = grid.floor_cells.duplicate()
-	grid.mark_explored(_player_start, 14.0)
+	grid.mark_explored(_player_start, 22.0)
 
 
 func _build_dungeon_lights(th: Dictionary) -> void:
@@ -1445,6 +1495,12 @@ func _build_act(act: String, zone: String, seed_value: int, level: int) -> void:
 	_prof("tiles")
 	_build_act_props(layout["props"])
 	_prof("props")
+	ground_fx = WorldGroundFx.new()
+	level_root.add_child(ground_fx)
+	ground_fx.build(self, layout.get("details", []), layout.get("grass", []))
+	build_profile["details"] = ground_fx.detail_count
+	build_profile["grass"] = ground_fx.grass_count
+	_prof("ground_fx")
 	_build_collision(layout["soft"], layout["shapes"])
 	_prof("collision")
 	# Lights: real ones up to the budget, else a moving pool (like dungeon torches).
@@ -1501,7 +1557,7 @@ func _build_act(act: String, zone: String, seed_value: int, level: int) -> void:
 			if rv > 0 and bool((_regions[rv - 1] as Dictionary).get("safe", false)):
 				grid.explored[k] = 1
 	grid.explored_version += 1
-	grid.mark_explored(_player_start, 14.0)
+	grid.mark_explored(_player_start, 22.0)
 	_set_region(region, false)
 	_prof("minimap")
 
@@ -1951,7 +2007,13 @@ func _build_act_ground(gen: WorldActGen) -> void:
 	_geo.add_child(root)
 	_gprof_h = 0
 	_gprof_c = 0
-	var mat := WorldKit.make_material(Color.WHITE, false, 0.95, Color.BLACK, 0.0, true)
+	# The act's procedural ground texture (WorldGroundFx) when it has a style, else plain colours.
+	var style := String(layout.get("ground_style", ""))
+	var mat: Material = WorldGroundFx.ground_material(style)
+	var detailed := mat != null
+	if mat == null:
+		mat = WorldKit.make_material(Color.WHITE, false, 0.95, Color.BLACK, 0.0, true)
+	ground_material = mat
 	var waters := _act_water_areas()
 	var ntx := int(ceil(rect.size.x / GROUND_TILE))
 	var ntz := int(ceil(rect.size.y / GROUND_TILE))
@@ -1973,7 +2035,7 @@ func _build_act_ground(gen: WorldActGen) -> void:
 			for wa in waters:
 				if (wa["rect"] as Rect2).intersects(r):
 					tile_waters.append(wa)
-			var mi := _ground_tile(gen, field, r, step, dmin >= GROUND_NEAR, tile_waters)
+			var mi := _ground_tile(gen, field, r, step, dmin >= GROUND_NEAR, tile_waters, detailed)
 			mi.material_override = mat
 			root.add_child(mi)
 			build_profile["ground_tiles_near" if dmin < GROUND_NEAR else "ground_tiles_far"] = int(build_profile.get("ground_tiles_near" if dmin < GROUND_NEAR else "ground_tiles_far", 0)) + 1
@@ -1985,7 +2047,7 @@ func _build_act_ground(gen: WorldActGen) -> void:
 var _gprof_h := 0
 var _gprof_c := 0
 
-func _ground_tile(gen: WorldActGen, field: PackedFloat32Array, r: Rect2, step: float, far: bool, waters: Array = []) -> MeshInstance3D:
+func _ground_tile(gen: WorldActGen, field: PackedFloat32Array, r: Rect2, step: float, far: bool, waters: Array = [], detailed: bool = false) -> MeshInstance3D:
 	var nx := maxi(2, int(ceil(r.size.x / step)) + 1)
 	var nz := maxi(2, int(ceil(r.size.y / step)) + 1)
 	var sx := r.size.x / (nx - 1)
@@ -1996,6 +2058,12 @@ func _ground_tile(gen: WorldActGen, field: PackedFloat32Array, r: Rect2, step: f
 	verts.resize(nx * nz)
 	var cols := PackedColorArray()
 	cols.resize(nx * nz)
+	# Material weights of the ground shader (WorldActGen.ground_detail): UV = r, g; UV2 = b, a.
+	var uv1 := PackedVector2Array()
+	var uv2 := PackedVector2Array()
+	if detailed:
+		uv1.resize(nx * nz)
+		uv2.resize(nx * nz)
 	for zi in nz:
 		for xi in nx:
 			var x := r.position.x + xi * sx
@@ -2017,6 +2085,10 @@ func _ground_tile(gen: WorldActGen, field: PackedFloat32Array, r: Rect2, step: f
 			verts[k] = Vector3(x, hgt - 0.02, z)
 			var t2 := Time.get_ticks_usec()
 			cols[k] = gen.ground_color(x, z)
+			if detailed:
+				var dw := gen.ground_detail(x, z)
+				uv1[k] = Vector2(dw.r, dw.g)
+				uv2[k] = Vector2(dw.b, dw.a)
 			var t3 := Time.get_ticks_usec()
 			_gprof_h += t1 - t0
 			_gprof_c += t3 - t2
@@ -2047,6 +2119,9 @@ func _ground_tile(gen: WorldActGen, field: PackedFloat32Array, r: Rect2, step: f
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = cols
+	if detailed:
+		arrays[Mesh.ARRAY_TEX_UV] = uv1
+		arrays[Mesh.ARRAY_TEX_UV2] = uv2
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

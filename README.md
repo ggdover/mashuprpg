@@ -46,21 +46,42 @@ Saves go to Godot's `user://` folder (on Linux: `~/.local/share/godot/app_userda
 
 | Action | Key | Action | Key |
 |---|---|---|---|
-| Move | WASD / arrows | Skill slots 1–6 | LMB, RMB, Q, E, R, F |
-| Dodge roll | Space | Life / mana potion | 1 / 2 |
+| Move | WASD / arrows | Skill slots 1–6 | LMB, MMB (middle mouse), Q, E, R, F |
+| Dodge roll | Space | Parry | Shift |
+| Life / mana potion | 1 / 2 | | |
 | Inventory | I | Character sheet | C |
 | Passive tree | P | Skill book | K |
 | Town portal | T | Show all loot labels | hold Alt |
 | Minimap size | Tab | Pause / close panel | Esc |
 | Zoom | Mouse wheel | Act Explorer | M |
 | Debug menu | F1 | Camera info overlay | F2 |
-| Orbit camera | hold middle mouse + move | | |
+| Orbit camera | hold right mouse + move | | |
 
 Your character always aims at the mouse. Holding a skill key repeats the skill. Left-clicking a loot
 label or an interactable (vendor, stash, waypoint, portal) walks there and picks it up or uses it.
 
+**Moving while fighting.** You can keep moving while you use skills: you walk at about a third of your
+speed while a skill is in use, and run at full speed again as soon as you stop (leaps and teleports still
+stop you). The legs walk forward, back off or side-step depending on which way you move relative to where
+you are attacking. Moving after an attack has landed (with its key released) cuts its follow-through short.
+
+**Dodge roll (Space).** A 5 m roll through monsters that briefly avoids all hits: a fast tumble that slows
+down quickly, then a slower rise back to your feet (0.55 s in all). Steer it with WASD while rolling.
+
+**Parry (hold Shift).** Hold Shift to keep your guard up (you move slowly and can't use skills
+meanwhile). Any blow that lands while it is up deals no damage, knocks back and stuns (1.5 s) every monster
+in a wide arc in front of you, and gives you a **Parry Charge** (the Shift slot glows gold). The guard then
+drops and a 3 s cooldown starts; if you still hold Shift it comes back up by itself after that. Lowering
+the guard without a parry costs nothing. Your next damaging skill uses the charge and is empowered: 50%
+more damage, 2 more projectiles, 2 more chains, a 40% bigger area where it has one, and attacks strike a
+second time right after (an echo).
+
+**Fog of war.** Ground far from you is shaded darker, and ground you have never explored (in the dungeons
+and the acts) is nearly black, so you can't tell what is there until you get close. The debug menu's
+Cheats tab can turn it off.
+
 **Camera.** The default view looks diagonally across the map (yaw 37.5°, pitch 49.4°); the debug
-menu's Cheats tab switches to the straight view (yaw 0°, pitch 54.1°). Hold the middle mouse button
+menu's Cheats tab switches to the straight view (yaw 0°, pitch 54.1°). Hold the right mouse button
 and move the mouse to orbit around your character, like in World of Warcraft. Movement keys follow the camera's facing, and the view is kept between zones.
 **F2** shows the camera's numbers: yaw, pitch, distance, FOV, camera and player positions, and the
 look-at point. While it is shown, the wheel zooms from 3 to 80 m, PgUp/PgDn change the FOV, Home resets
@@ -74,7 +95,11 @@ outskirts, about 350 × 330 m), and four more zones joined to it by paths, each 
 level. You simply walk everywhere; when you cross into another zone its name and monster level fade in
 on screen (like Diablo II), and walking back into town refills your life and potions. Monsters never
 follow you into town, and they appear as you come near (so the huge maps stay fast). Every zone has its
-own monsters, landmarks and light, and a gateway marks each path between zones. Low ruined walls
+own monsters, landmarks and light, and a gateway marks each path between zones. The ground is textured
+per act: gravel paths, mud and puddles, leaf litter, moss and pine needles in the forest; wind-rippled sand,
+pebbles, cracked sandstone, half-buried sand bricks and dried mud in the desert; mud, puddles, dead leaves,
+soot, broken glass, splinters and blood on the gothic streets. Patches of grass sway in the wind and bend
+away from you and the monsters as you walk through them. Low ruined walls
 (desert) and Swedish roundpole fences (forest) mark the edges of the map; the gothic town is closed in
 by rows of houses and iron railings.
 
@@ -203,6 +228,29 @@ screenshot at each step:
 ```bash
 $GODOT --path . res://scenes/main.tscn -- --acts-tour=/tmp/acts_tour
 ```
+
+The combat tour shows the fighting controls with a warrior next to a monster pack in Act I: attacking while
+walking, the parry guard, a caught blow (stunned monsters), the empowered attack and its echo, and a dodge
+roll steered with the movement keys:
+
+```bash
+$GODOT --path . res://scenes/main.tscn -- --combat-tour=/tmp/combat_tour
+```
+
+### Windows build (one file)
+
+`export_presets.cfg` has a "Windows" preset that packs the whole game into a single `.exe` (the game data
+is embedded, no console window, 64-bit). It needs the Godot 4.6.1 export templates (Editor → Manage
+Export Templates). Build it from the project folder:
+
+```bash
+$GODOT --headless --path . --export-release "Windows" build/windows/MashupRPG.exe
+```
+
+Copy `build/windows/MashupRPG.exe` (~110 MB) to the Windows PC and double-click it. Nothing needs
+installing, but the PC needs a graphics card with Vulkan or DirectX 12 support. Windows SmartScreen may
+warn about an unknown publisher (the file is not signed): choose "More info" → "Run anyway". Saves go to
+`%APPDATA%\Godot\app_userdata\Mashup RPG\`. `build/` is ignored by git.
 
 ### Demo scenes
 

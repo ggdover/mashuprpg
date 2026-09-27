@@ -10,11 +10,11 @@ extends Control
 ## CONTRACT STUB — keep every public member/signature. See docs/ARCHITECTURE.md §16.
 ##
 ## Layout (base 1920×1080, positions follow the HUD size): globes in the bottom corners, a bronze
-## plate in the bottom centre with [life potion][LMB][RMB] | [Q][E][R][F][mana potion][dodge],
+## plate in the bottom centre with [life potion][LMB][MMB] | [Q][E][R][F][mana potion][dodge][parry],
 ## the XP bar along the bottom edge between the globes, "+N Passive Points" above the XP bar on
 ## the left, buffs/ailments top left, boss bar + hovered-enemy card top centre, minimap + area name
 ## top right, a fading area title on area entry, damage numbers and a low-life vignette under
-## everything. Only the globes, slots, potions, dodge, XP bar, buff icons and the passive button
+## everything. Only the globes, slots, potions, dodge, parry, XP bar, buff icons and the passive button
 ## take the mouse (MOUSE_FILTER_STOP); everything else is IGNORE.
 ##
 ## Works standalone (tests / demos): `var h := HUD.new(); some_canvas_layer.add_child(h)`; it binds
@@ -31,6 +31,7 @@ const HudGlobe := preload("res://scripts/ui/hud/hud_globe.gd")
 const HudSkillSlot := preload("res://scripts/ui/hud/hud_skill_slot.gd")
 const HudPotionSlot := preload("res://scripts/ui/hud/hud_potion_slot.gd")
 const HudDodgeSlot := preload("res://scripts/ui/hud/hud_dodge_slot.gd")
+const HudParrySlot := preload("res://scripts/ui/hud/hud_parry_slot.gd")
 const HudXpBar := preload("res://scripts/ui/hud/hud_xp_bar.gd")
 const HudStatusBar := preload("res://scripts/ui/hud/hud_status_bar.gd")
 const HudMinimap := preload("res://scripts/ui/hud/hud_minimap.gd")
@@ -64,6 +65,7 @@ var skill_slots: Array[Control] = []
 var life_potion: Control = null
 var mana_potion: Control = null
 var dodge_slot: Control = null
+var parry_slot: Control = null
 var xp_bar: Control = null
 var status_bar: Control = null
 var minimap: Control = null
@@ -330,6 +332,8 @@ func _build() -> void:
 	add_child(mana_potion)
 	dodge_slot = HudDodgeSlot.new()
 	add_child(dodge_slot)
+	parry_slot = HudParrySlot.new()
+	add_child(parry_slot)
 	xp_bar = HudXpBar.new()
 	add_child(xp_bar)
 	life_globe = HudGlobe.new("life")
@@ -348,13 +352,13 @@ func _build() -> void:
 	# Full-screen layers follow the HUD rect through their anchors.
 	for full: Control in [vignette, damage_numbers, minimap_large, tooltip]:
 		full.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for c: Control in [life_potion, mana_potion, dodge_slot, xp_bar, status_bar, passive_button]:
+	for c: Control in [life_potion, mana_potion, dodge_slot, parry_slot, xp_bar, status_bar, passive_button]:
 		c.set("hud", self)
 	for s in skill_slots:
 		s.set("hud", self)
 	for c2: Control in [boss_bar, nameplate, minimap, minimap_large]:
 		c2.set("hud", self)
-	_interactive.assign([life_globe, mana_globe, life_potion, mana_potion, dodge_slot, xp_bar, status_bar, passive_button])
+	_interactive.assign([life_globe, mana_globe, life_potion, mana_potion, dodge_slot, parry_slot, xp_bar, status_bar, passive_button])
 	_interactive.append_array(skill_slots)
 
 
@@ -374,7 +378,7 @@ func _layout() -> void:
 	var pot := Vector2(HudPotionSlot.SLOT_W, HudPotionSlot.SLOT_H)
 	var dodge_w := HudDodgeSlot.SLOT_SIZE
 	var skills_w := slot * 6.0 + SLOT_GAP * 4.0 + GROUP_GAP
-	var cluster_w := pot.x + CLUSTER_GAP + skills_w + CLUSTER_GAP + pot.x + CLUSTER_GAP + dodge_w
+	var cluster_w := pot.x + CLUSTER_GAP + skills_w + CLUSTER_GAP + pot.x + CLUSTER_GAP + dodge_w + SLOT_GAP + HudParrySlot.SLOT_SIZE
 	var plate_h := pot.y + PLATE_PAD.y * 2.0
 	var plate_w := cluster_w + PLATE_PAD.x * 2.0
 	var plate_bottom := H - 34.0
@@ -398,6 +402,8 @@ func _layout() -> void:
 	mana_potion.position = Vector2(x, mid_y - pot.y * 0.5)
 	x += pot.x + CLUSTER_GAP
 	dodge_slot.position = Vector2(x, mid_y - dodge_slot.size.y * 0.5 + 6.0)
+	x += dodge_w + SLOT_GAP
+	parry_slot.position = Vector2(x, mid_y - parry_slot.size.y * 0.5 + 6.0)
 	(plate as HudPlate).dividers = dividers
 	plate.queue_redraw()
 
@@ -474,6 +480,7 @@ func _update(delta: float) -> void:
 		(mana_potion as HudPotionSlot).set_state(c.mana_potion_charges, Balance.POTION_MAX_CHARGES, mana_active)
 	if pl != null:
 		(dodge_slot as HudDodgeSlot).set_state(pl.get_dodge_cooldown_ratio(), not pl.dead and pl.can_act())
+		(parry_slot as HudParrySlot).set_state(pl.get_parry_cooldown_ratio(), not pl.dead and pl.can_act(), pl.get_parry_charges(), pl.is_parrying())
 	var casting := pl != null and pl.is_casting_portal()
 	(cast_bar as HudCastBar).step(casting, pl.get_portal_cast_ratio() if casting else 0.0, delta)
 	# XP + passive points.

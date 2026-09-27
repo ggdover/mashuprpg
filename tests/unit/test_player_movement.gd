@@ -1,9 +1,11 @@
 extends TestCase
 ## Player movement: ai_move speed / direction / facing, run animation, wall collision and
 ## sliding, SkillRunner movement multiplier, knockback, freeze, movement speed modifiers, WASD
-## polling (screen space) and the LineEdit focus rule.
+## polling (screen space) and the LineEdit focus rule, the walking legs under a skill and the walk
+## for slow movement.
 
 const FakeRunner := preload("res://tests/unit/test_player_fake_runner.gd")
+const PlayerVisualsScript := preload("res://scripts/entities/player/player_visuals.gd")
 
 
 func _wait(frames: int) -> void:
@@ -180,3 +182,49 @@ func test_keyboard_polling_screen_space_and_lineedit_focus() -> void:
 	assert_true(p.global_position.distance_to(mark) < 0.01, "keyboard ignored under ai_control")
 	p.ai_release_control()
 	assert_false(p.ai_control, "control handed back")
+
+
+func test_walking_legs_while_using_a_skill() -> void:
+	await make_world()
+	make_character("warrior")
+	var p := spawn_player(Vector3.ZERO)
+	await _wait(2)
+	var v := p.visuals
+	assert_not_null(v.legs, "leg layer built (the model has the walk clips)")
+	if v.legs == null:
+		return
+	# Attacking toward -Z (the facing) while moving: the legs walk under the attack, by direction.
+	p.ai_aim(Vector3(0, 0, -5))
+	p.ai_hold_skill(0, true)
+	for case in [[Vector3(1, 0, 0), "walk_right"], [Vector3(0, 0, 1), "walk_back"], [Vector3(-1, 0, 0), "walk_left"],
+			[Vector3(0, 0, -1), "walk"]]:
+		p.ai_move(case[0])
+		await _wait(14)
+		await get_tree().process_frame
+		assert_ne(v.action_anim, "", "attacking")
+		assert_true(v.get_legs_weight() > 0.8, "walking legs under the attack (%.2f)" % v.get_legs_weight())
+		assert_eq(v.legs.dominant_clip(), String(case[1]), "moving %s: %s" % [case[0], case[1]])
+		var ph := v.legs.phase
+		await _wait(4)
+		await get_tree().process_frame
+		var step := fposmod(v.legs.phase - ph, 1.0)
+		assert_true(step > 0.01 and step < 0.6, "the legs step in time (%.3f)" % step)
+	# Standing still: the attack's own legs.
+	p.ai_move(Vector3.ZERO)
+	await _wait(15)
+	await get_tree().process_frame
+	assert_true(v.get_legs_weight() < 0.05, "standing: no walking legs")
+	p.ai_hold_skill(0, false)
+	await _wait(60)
+	# Moving slowly without a skill (chilled): the walk plays instead of the run.
+	p.apply_ailment("chill", {"effect": 0.5, "duration": 3.0})
+	p.ai_move(Vector3(1, 0, 0))
+	await _wait(10)
+	await get_tree().process_frame
+	assert_true(p.get_move_speed() < PlayerVisualsScript.WALK_BELOW, "slowed below the walk threshold")
+	assert_eq(v.loco_anim, "walk", "slow movement walks")
+	p.remove_ailment("chill")
+	await _wait(10)
+	await get_tree().process_frame
+	assert_eq(v.loco_anim, "run", "full speed runs")
+	p.ai_move(Vector3.ZERO)

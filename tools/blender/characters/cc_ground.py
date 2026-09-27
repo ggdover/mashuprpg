@@ -146,6 +146,29 @@ class RigInfo:
 		return (al, be, psi - al - be), d0 - d
 
 
+	def solve_leg_3d(self, G_hips, side, target, psi):
+		"""Two-bone IK with a sideways thigh swing: the target is turned about the hip's forward (Y)
+		axis into the leg's rest plane, solved there (solve_leg), and the thigh is swung back out by
+		the same angle. The foot stays level with pitch psi. Returns ((thigh X, Y, 0), (knee X, 0, 0),
+		(foot X, Y, Z)) Euler degrees and the reach error."""
+		from mathutils import Matrix
+		Q = G_hips.inverted() @ target
+		H, A = self.hip[side], self.ankle[side]
+		g0 = math.atan2(A.x - H.x, -(A.z - H.z))
+		gt = math.atan2(Q.x - H.x, -(Q.z - H.z))
+		th = gt - g0
+		Qp = H + Matrix.Rotation(th, 3, "Y") @ (Q - H)
+		# solve_leg maps its target through G_hips^-1: hand it the rotated point in armature space.
+		(al, be, _foot), err = self.solve_leg(G_hips, side, G_hips @ Qp, psi)
+		# thigh = Ry(-th) Rx(al); foot delta so the foot ends with pitch psi and no roll:
+		# L_foot = Rx(-(al + be)) Ry(th) Rx(psi)
+		Mf = (Matrix.Rotation(math.radians(-(al + be)), 3, "X") @ Matrix.Rotation(th, 3, "Y")
+			@ Matrix.Rotation(math.radians(psi), 3, "X"))
+		ef = Mf.to_euler("XYZ")
+		return ((al, math.degrees(-th), 0.0), (be, 0.0, 0.0),
+			(math.degrees(ef.x), math.degrees(ef.y), math.degrees(ef.z))), err
+
+
 # ----------------------------------------------------------------------------------- baking
 
 def _curves(arm, act):

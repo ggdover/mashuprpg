@@ -28,6 +28,9 @@ const AI_CHANNEL_MAX := 2.5
 const HELD_RETRY_MS := 300
 ## Whirlwind's sound repeats this often while channelling.
 const CHANNEL_SFX_INTERVAL := 0.6
+## The player keeps moving while using a skill, heavily slowed: movement_multiplier() is at least
+## this for player actors (movement skills keep their own value: leaps and teleports root).
+const PLAYER_SKILL_MOVE_MULT := 0.35
 
 var actor: Actor = null
 ## The most recent SkillUse started by this runner (tests / demos / HUD).
@@ -47,6 +50,8 @@ var _anim := ""
 var _elapsed := 0.0
 var _duration := 0.0
 var _hit_time := 0.0
+## When the delivery's travel (leap flight, charge) is over; the recovery after it can be cut.
+var _impact_time := 0.0
 var _effect_done := false
 var _channel := false
 var _channel_interval := 0.0
@@ -122,6 +127,9 @@ func try_use(skill_id: String, target_pos: Vector3, target: Actor = null) -> boo
 	if cd > 0.0:
 		_cooldowns[skill_id] = Vector2(cd, cd)
 	var use := SkillUse.create(actor, s, target_pos, target)
+	# A parry charge empowers the next damaging skill (Player.consume_empower).
+	if SkillEmpower.can_empower(s) and actor.has_method("consume_empower") and bool(actor.call("consume_empower")):
+		SkillEmpower.apply(use)
 	_use = use
 	last_use = use
 	_current = skill_id
@@ -163,6 +171,7 @@ func try_use(skill_id: String, target_pos: Vector3, target: Actor = null) -> boo
 		d_anim = maxf(u_time, t_impact + 0.3)
 	var duration := maxf(d_anim, t_impact + 0.05)
 	_hit_time = t_hit / speed
+	_impact_time = t_impact / speed
 	_duration = duration / speed
 	actor.play_action_animation(_anim, _duration)
 	skill_started.emit(skill_id, _anim, _duration)
@@ -208,11 +217,37 @@ func get_current_skill() -> String:
 	return _current
 
 
-## Movement speed multiplier while using the current skill (0 = rooted, 1 = free).
+## Movement speed multiplier while using the current skill (0 = rooted, 1 = free). The player is
+## never rooted by a skill: at least PLAYER_SKILL_MOVE_MULT, except for movement skills.
 func movement_multiplier() -> float:
 	if _current == "":
 		return 1.0
-	return clampf(float(_skill.get("move_mult", 0.0)), 0.0, 1.0)
+	var mm := clampf(float(_skill.get("move_mult", 0.0)), 0.0, 1.0)
+	if _actor_ok() and actor is Player and not ("movement" in _skill.get("tags", [])):
+		mm = maxf(mm, PLAYER_SKILL_MOVE_MULT)
+	return mm
+
+
+## True once the current use only has its recovery left: the effect happened, its travel is over
+## and nothing it spawned (rapid fire's volley, a leap) is still running. Channels never are.
+func is_recovering() -> bool:
+	if _current == "" or _channel or not _effect_done or _elapsed < _impact_time - 0.00001:
+		return false
+	for r in _owned:
+		var n: Variant = (r as WeakRef).get_ref()
+		if n != null and is_instance_valid(n) and not (n as Node).is_queued_for_deletion():
+			return false
+	return true
+
+
+## Cut the recovery short (the player moves off after the hit). False when not recovering.
+func end_recovery() -> bool:
+	if not is_recovering():
+		return false
+	_finish()
+	if _actor_ok():
+		actor.stop_action_animation()
+	return true
 
 
 func get_cooldown_remaining(skill_id: String) -> float:
@@ -321,8 +356,19 @@ func _do_effect() -> void:
 	var owned: Variant = SkillDeliveries.execute(use)
 	if owned != null and is_instance_valid(owned):
 		_owned.append(weakref(owned))
+	if use.echo:
+		_schedule_echo(use)
 	if _current == id:
 		skill_effect.emit(id)
+
+
+## An empowered attack repeats once, SkillEmpower.ECHO_DELAY s after its effect (also when the
+## runner has moved on to another skill meanwhile).
+func _schedule_echo(use: SkillUse) -> void:
+	if not _actor_ok() or not actor.is_inside_tree():
+		return
+	actor.get_tree().create_timer(SkillEmpower.ECHO_DELAY, false, true).timeout.connect(func() -> void:
+		SkillEmpower.run_echo(use))
 
 
 func _finish() -> void:
@@ -404,6 +450,7 @@ func _clear_state() -> void:
 	_elapsed = 0.0
 	_duration = 0.0
 	_hit_time = 0.0
+	_impact_time = 0.0
 	_effect_done = false
 	_channel = false
 	_channel_ticks = 0

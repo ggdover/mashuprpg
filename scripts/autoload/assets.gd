@@ -98,7 +98,7 @@ func color_for_id(id: String) -> Color:
 # ------------------------------------------------------------------ model helpers
 
 ## Animations that loop. Everything else is a one-shot.
-const LOOPING_ANIMATIONS: Array[String] = ["idle", "run", "channel", "walk"]
+const LOOPING_ANIMATIONS: Array[String] = ["idle", "run", "channel", "walk", "walk_back", "walk_left", "walk_right", "parry_hold"]
 
 ## Bone attach points used for placeholder models (no skeleton). Character faces +Z, so its right
 ## hand is on -X.

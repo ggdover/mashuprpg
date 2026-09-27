@@ -186,6 +186,7 @@ func _ready() -> void:
 	_build_visuals()
 	StatusVisuals.attach(self)
 	damaged.connect(_on_damaged)
+	ailment_changed.connect(_on_ailment_changed)
 	_last_life = life
 	_think_timer = randf() * THINK_INTERVAL
 	_repath_timer = randf() * REPATH_INTERVAL
@@ -976,6 +977,12 @@ func _turn_towards(dir: Vector3, delta: float) -> void:
 
 
 # ------------------------------------------------------------------ events
+
+## Stunned (a parried blow): reel back once; the AI and movement stop while can_act() is false.
+func _on_ailment_changed(kind: String, active: bool) -> void:
+	if kind == "stun" and active and not dead:
+		play_action_animation("hit", 0.4)
+
 
 func _on_damaged(amount: float, is_crit: bool, source: Node) -> void:
 	if dead:

@@ -1,7 +1,7 @@
 extends PanelContainer
 ## One skill in the skill book: icon (greyed + padlock while locked), name, unlock level, tag
 ## chips, weapon requirement (red when the equipped weapon can't use it), cost / cooldown, and six
-## slot buttons (LMB, RMB, Q, E, R, F) that assign it to the skill bar (gold = assigned there;
+## slot buttons (LMB, MMB, Q, E, R, F) that assign it to the skill bar (gold = assigned there;
 ## clicking a gold one clears that slot). Drag source: {"type": "skill", "skill_id": id} (onto the
 ## HUD skill bar or the book's own bar). Visible frame => MOUSE_FILTER_STOP; buttons FOCUS_NONE.
 ## Internal: preload("res://scripts/ui/skills/skill_book_row.gd").

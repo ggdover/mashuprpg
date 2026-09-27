@@ -1,12 +1,29 @@
 extends Node3D
-## The player's look: the char_player model, its AnimationPlayer (idle / run by speed, time-scaled
-## action one-shots, looping channel with model spin, hit reaction, death), gear visuals (weapon,
-## shield / focus, quiver, helmet attached to bones; armour tints on body parts) and the hit flash.
+## The player's look: the char_player model, its AnimationPlayer (idle / walk / run by speed,
+## time-scaled action one-shots, looping channel with model spin, hit reaction, death), a leg layer
+## (PlayerLegs: walking / backing off / side-stepping legs under an action while the player moves
+## during a skill, blended by the direction of movement), gear visuals
+## (weapon, shield / focus, quiver, helmet attached to bones; armour tints on body parts) and the hit
+## flash.
 ## Child "Visuals" of the Player. OWNER: player (wave 2).
 ## Internal helper of Player: `const PlayerVisuals := preload("res://scripts/entities/player/player_visuals.gd")`.
 
+const PlayerLegs := preload("res://scripts/entities/player/player_legs.gd")
+
 ## Planted-foot speed of char_player's run cycle (m/s): run speed_scale = speed / RUN_REF_SPEED.
 const RUN_REF_SPEED := 5.2
+## Planted-foot speed of the walk cycle (m/s): walk speed_scale = speed / WALK_REF_SPEED (the pace
+## while using a skill, SkillRunner.PLAYER_SKILL_MOVE_MULT × the base move speed).
+const WALK_REF_SPEED := 1.82
+## Locomotion switches to the walk below WALK_BELOW and back to the run above RUN_ABOVE (m/s).
+const WALK_BELOW := 2.8
+const RUN_ABOVE := 3.2
+## Actions whose legs stay their own (no walking legs under them).
+const OWN_LEGS: Array[String] = ["dodge", "die", "channel", "hit"]
+## How fast the walking legs blend in / out under an action (per second).
+const LEGS_BLEND_RATE := 12.0
+## How fast the leg layer turns toward a new movement direction (1/s, exponential).
+const LEGS_TURN_RATE := 14.0
 ## Below this horizontal speed (m/s) the model idles.
 const RUN_MIN_SPEED := 0.4
 ## Model spin while the action animation is "channel" (turns per second).
@@ -25,7 +42,7 @@ const FLASH_DECAY := 3.5
 const ANIM_FALLBACKS := {
 	"attack_stab": "attack_slash", "attack_slam": "attack_slash", "shoot_crossbow": "shoot_bow",
 	"shoot_bow": "attack_slash", "cast_area": "cast", "roar": "cast_area", "channel": "cast",
-	"dodge": "run", "hit": "idle",
+	"dodge": "run", "hit": "idle", "parry": "attack_stab", "parry_hold": "parry",
 }
 
 var model: Node3D = null
@@ -42,6 +59,8 @@ var dead := false
 
 var _reaction := false
 var _flash := 0.0
+## The leg layer (null for placeholder models or models without a walk).
+var legs: PlayerLegs = null
 var _hair: MeshInstance3D = null
 
 
@@ -56,12 +75,33 @@ func build() -> void:
 	if anim != null:
 		anim.playback_default_blend_time = 0.0
 		_play_loco("idle", 0.0)
+		_build_legs()
+
+
+func _build_legs() -> void:
+	if anim == null or not anim.has_animation("walk"):
+		return
+	var sk := Assets.find_skeleton(model)
+	if sk == null:
+		return
+	var l := PlayerLegs.new()
+	l.name = "WalkLegs"
+	if not l.setup(anim, sk):
+		l.free()
+		return
+	l.influence = 0.0
+	l.active = false
+	sk.add_child(l)
+	legs = l
 
 
 # ------------------------------------------------------------------ per-frame update
 
-## speed: horizontal speed in m/s; frozen pauses the animation.
-func update(delta: float, speed: float, frozen: bool) -> void:
+## speed: horizontal speed in m/s; frozen pauses the animation. local_velocity: the velocity in the
+## model's frame (x = toward its right, y = forward; zero = straight ahead) — the leg layer under an
+## action walks, backs off or side-steps by its direction.
+func update(delta: float, speed: float, frozen: bool, local_velocity: Vector2 = Vector2.ZERO) -> void:
+	_update_legs(delta, speed, frozen, local_velocity)
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - FLASH_DECAY * delta)
 		Assets.set_flash(model, _flash, HIT_FLASH_COLOR)
@@ -85,11 +125,42 @@ func update(delta: float, speed: float, frozen: bool) -> void:
 		anim.speed_scale = 1.0
 		return
 	if speed > RUN_MIN_SPEED:
-		_play_loco("run", LOCO_BLEND)
-		anim.speed_scale = clampf(speed / RUN_REF_SPEED, 0.45, 2.6)
+		var walking := anim.has_animation("walk") and (speed < WALK_BELOW or (loco_anim == "walk" and speed < RUN_ABOVE))
+		if walking:
+			_play_loco("walk", LOCO_BLEND)
+			anim.speed_scale = clampf(speed / WALK_REF_SPEED, 0.5, 1.9)
+		else:
+			_play_loco("run", LOCO_BLEND)
+			anim.speed_scale = clampf(speed / RUN_REF_SPEED, 0.45, 2.6)
 	else:
 		_play_loco("idle", LOCO_BLEND)
 		anim.speed_scale = 1.0
+
+
+## The walking legs under an action: blended in while moving (by speed), turned toward the direction
+## of movement relative to the facing (forward walk, side-steps, backing off), stepping in time with
+## the ground speed; blended out when standing or between actions.
+func _update_legs(delta: float, speed: float, frozen: bool, local_velocity: Vector2) -> void:
+	if legs == null or not is_instance_valid(legs):
+		return
+	var want := 0.0
+	if not dead and not frozen and action_anim != "" and not OWN_LEGS.has(action_anim):
+		want = clampf((speed - 0.25) / 0.6, 0.0, 1.0)
+	var was_active := legs.active
+	legs.influence = move_toward(legs.influence, want, LEGS_BLEND_RATE * delta)
+	legs.active = legs.influence > 0.001
+	if not legs.active or frozen:
+		return
+	if local_velocity.length_squared() > 0.01:
+		var target := atan2(local_velocity.x, local_velocity.y)
+		# Snap when the layer just came in; turn smoothly while it plays.
+		legs.direction = target if not was_active else lerp_angle(legs.direction, target, 1.0 - exp(-LEGS_TURN_RATE * delta))
+	legs.phase = fposmod(legs.phase + delta * speed / legs.cycle_distance(), 1.0)
+
+
+## Weight of the walking legs under the current action (0 = the action's own legs).
+func get_legs_weight() -> float:
+	return legs.influence if legs != null and is_instance_valid(legs) and legs.active else 0.0
 
 
 func _play_loco(name_: String, blend: float) -> void:

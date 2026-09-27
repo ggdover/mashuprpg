@@ -160,7 +160,7 @@ func choose_bar(c: CharacterData, actor: Actor) -> Array[String]:
 	if not dmg.is_empty():
 		bar[0] = dmg[0][1]
 		used[bar[0]] = true
-	# RMB: the best area skill (weighted), else the next damage skill.
+	# Slot 2: the best area skill (weighted), else the next damage skill.
 	var best_aoe := ""
 	var best_aoe_v := -1.0
 	for e in dmg:

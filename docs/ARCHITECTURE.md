@@ -46,8 +46,9 @@ and keystones; procedural dungeons; vendor with crafting; stash; save/load.
 
 | Action | Key | Action | Key |
 |---|---|---|---|
-| move | WASD / arrows | skill slots 1–6 | LMB, RMB, Q, E, R, F |
-| dodge roll | Space | life / mana potion | 1 / 2 |
+| move | WASD / arrows | skill slots 1–6 | LMB, MMB, Q, E, R, F |
+| dodge roll | Space | parry | Shift |
+| life / mana potion | 1 / 2 | orbit camera | hold RMB |
 | inventory | I | character sheet | C |
 | passive tree | P | skill book | K |
 | town portal | T | show all loot labels | hold Alt |
@@ -260,6 +261,10 @@ so it scales monster attacks and monster spells alike. DamageCalc never reads `E
 - **shock**: +`effect` damage taken (hits and DoTs); keep the stronger.
 - **ignite / bleed**: one instance; a new one replaces the old if its dps is higher (else refresh duration).
 - **poison**: stacks `{"stacks": [{"dps", "time_left"}], "dps": total, ...}`, max 20.
+- **stun**: not rolled from hits; applied by the player's parry counter (`apply_ailment("stun",
+  {"duration"})`). Like freeze it stops moving and acting (`can_act()` false, cancels the current skill;
+  `is_stunned()`), without ice or an immunity afterwards. Stars circle over the head (StatusVisuals);
+  monsters flinch when stunned.
 - Bosses: all ailment durations ×0.5 (freeze ×0.3).
 - DoTs tick every physics frame via `take_damage(dps × delta, type, true)`: resistance of its type applies
   (bleed: only physical_damage_reduction), shock applies, ES absorbs, MoM applies, never evaded/blocked.
@@ -372,7 +377,18 @@ Then: resolve (`SkillDB.resolve_for_weapon`), pay the cost, face the target,
 emit `skill_started`; at `hit_frame × duration` run the delivery (`skill_effect`); at `duration` finish.
 Cooldowns start on use. Freeze or dodge cancels (`cancel()` → `actor.stop_action_animation()`). Channel
 skills: `play_action_animation("channel", 0)` (loops), tick every `get_use_time` while held (cost per tick),
-end on release/out of mana → `stop_action_animation()`. `movement_multiplier()` = `move_mult` while busy.
+end on release/out of mana → `stop_action_animation()`. `movement_multiplier()` = `move_mult` while busy;
+for the player at least `PLAYER_SKILL_MOVE_MULT` (0.35: skills slow the player instead of rooting), except
+movement-tagged skills (leap, teleport). `is_recovering()` / `end_recovery()`: once the effect has happened,
+its travel is over and nothing it spawned still runs, the rest of the use can be cut (the player moves
+off with the key released).
+
+**Parry empowerment** (`SkillEmpower`, `scripts/skills/skill_empower.gd`): `try_use` asks the actor
+`consume_empower()` (Player: a parry charge) for damaging skills (`can_empower`: not buff / blink /
+summon) and marks the `SkillUse` (`empowered`, `more_damage` +50% on every hit, `extra_projectiles` +2 for
+projectile / sequence deliveries, `extra_chains` +2, `area_mult` ×1.4 for area deliveries and explosions,
+`echo` for attack melee / projectile deliveries). An echo repeats the delivery once `ECHO_DELAY` (0.22 s)
+after the effect, from where the caster stands, with a quick replay of the attack animation.
 
 ### 8.3 Deliveries (`params`)
 | delivery | params | notes |
@@ -598,17 +614,34 @@ only: no Color/Vector2/int keys). `save_id` = sanitized name + unix time. Typed 
   as held while `Input.is_action_pressed(action)`. Skip polled movement/skill keys while
   `get_viewport().gui_get_focus_owner() is LineEdit`. While `ai_control` is true, ignore real input; the
   `ai_*` methods drive the same code paths (bot, tests, tour).
-- **Move:** WASD in screen space (camera yaw fixed: screen-up = world −Z).
+- **Move:** WASD relative to the camera's yaw.
   `velocity = dir × get_move_speed() × skill_runner.movement_multiplier()`; `move_and_slide()`. Face the
-  movement direction unless a skill is in use.
+  movement direction unless a skill is in use. Using a skill slows the player (≥ 0.35×) instead of rooting;
+  moving with no slot of the running skill held cuts its recovery (`end_recovery()`), so full speed is back
+  right after the hit.
 - **Aim:** `camera_rig.get_mouse_ground_position()`; hovering an enemy targets it.
 - **Hover:** when the hover target changes, call `set_hovered(false)` on the old Interactable and
   `set_hovered(true)` on the new one, then emit `Events.hovered_target_changed`.
 - **Skills:** hold slot → `try_use(slot skill, aim, target)` whenever not busy (repeat while held);
   `update_target` while held; `release` on key up. LMB on a hovered GroundItem/Interactable → auto-walk
   (`world.find_path`) then `interact(self)`; WASD cancels the auto-walk.
-- **Dodge:** 6 m over 0.35 s toward move dir (or mouse), `invulnerable_time = 0.3`, cooldown 1.2 s, cancels
-  skills, anim `dodge`.
+- **Dodge:** `DODGE_DISTANCE` 5 m over `DODGE_TIME` 0.55 s toward move dir (or mouse): speed falls off as
+  `(1 − t/T)^DODGE_EASE` (ease 2: ~80% of the distance in the first 40% of the time, `dodge_progress()`),
+  the animation tumbles early and rises slowly; steered by WASD while rolling (`DODGE_STEER_RATE`
+  10 rad/s), `invulnerable_time = 0.35`, cooldown 1.2 s, cancels skills and the parry, anim `dodge`.
+- **Parry (hold Shift; `start_parry()` / `end_parry()`, `ai_parry()` / `ai_release_parry()`):** the guard
+  stays up while the key is held (anim `parry_hold` loop, gold guard disc; slowed like a skill; cancels the
+  current skill; skills wait until it drops; not while dodging, frozen, stunned or casting the portal;
+  ignored while the mouse is over UI, where Shift means shift-click). While held it comes back up by
+  itself whenever it may (after the cooldown, a roll, a stun). `Actor._intercept_hit()` (checked first in
+  `take_hit`, before god mode / invulnerability): a hit from the other team while the guard is up deals
+  nothing ("Parry!" number) and counters: the player turns to it, every hostile within `PARRY_RADIUS`
+  5 m in a `PARRY_ARC_DEG` 160° cone gets `stun` for `PARRY_STUN` 1.5 s and `PARRY_KNOCKBACK` 13 m/s of
+  knockback (bosses: no knockback), 0.35 s invulnerability, the guard drops and `PARRY_COOLDOWN` 3 s
+  starts (no cooldown without a parry), and the player gains a parry charge (max 1): buff
+  `parry_charge` ("Parry Charge", with a description) + a gold aura, used up by the next damaging skill
+  (`consume_empower()`, see §8.2). HUD: a round Shift slot beside the dodge slot (cooldown pie, gold
+  glow + pip while charged).
 - **Potions:** life heals 40% max life over 1.5 s; mana 50% over 1.5 s (× (1 + inc(potion_effect)/100)).
   `character.consume_potion_charge(kind)`; a potion can't be used while its own heal-over-time is running
   ("Potion already active"). Player listens to `Events.enemy_killed` and calls
@@ -620,7 +653,12 @@ only: no Color/Vector2/int keys). `save_id` = sanitized name + unix time. Typed 
   `TreeDB.get_mods(allocated, class)` + resist penalty in dungeons (§5.3). Recalculate on
   `equipment_changed`, `passives_changed`, `level_up`; emit `Events.player_stats_changed`. Level up: full
   heal, ring VFX, `Sfx.play("level_up")`, `Events.notify.emit("Level %d" % L, UIStyle.COLOR_GOLD)`.
-- **Visuals:** `Assets.model("char_player")` + `Assets.prepare_animations()`; idle/run by speed;
+- **Visuals:** `Assets.model("char_player")` + `Assets.prepare_animations()`; idle / walk (below
+  2.8 m/s, speed_scale = speed / 1.82) / run by speed; while an action plays and the player moves, a
+  `SkeletonModifier3D` leg layer (`player_legs.gd`) poses the legs from the directional walks — `walk`,
+  `walk_right`, `walk_back`, `walk_left`, blended by the direction of movement relative to the facing at
+  one shared phase, in step with the ground speed — blended in by speed (not under dodge / die / channel
+  / hit);
   one-shots via `play_action_animation` (speed scaled to duration); spin the model during `channel`.
   Main-hand model on `grip_r`, shield/focus on `grip_l`, quiver on `chest`, helmet on `head`
   (`Assets.attach_to_bone`). Tint body parts with `Assets.tint`: body armour → `Torso` + `Arms`, gloves →
@@ -629,8 +667,9 @@ only: no Color/Vector2/int keys). `save_id` = sanitized name + unix time. Typed 
   times per second. Death → `Events.player_died`, anim `die`, input off.
 
 ### 11.4 Camera (`CameraRig`)
-Perspective, vertical FOV 45°, pitch 56° down, yaw 0 (looking toward −Z), distance 18 (wheel zoom 11–26, in
-`_unhandled_input`), smooth follow. The rig is a child of the World (not of the Player). Owns an
+Perspective, vertical FOV 45°, the default view from `PRESETS` (yaw 37.5°, pitch 49.4°, 19.5 m; wheel zoom in
+`_unhandled_input`), smooth follow. Holding the right mouse button (`ORBIT_BUTTON`) and moving the mouse
+orbits (`orbit_by`); skill slot 2 is on the middle button. The rig is a child of the World (not of the Player). Owns an
 `AudioListener3D` at the target. Sets the global shader parameter `player_world_pos` every frame. Hover ray
 through the mouse (or `mouse_override`): mask 28, areas + bodies; null while `UI.is_mouse_over_ui()`.
 
@@ -767,7 +806,11 @@ shoulder. Verify every attachment in Godot with screenshots.
 (0.8 s, overhead two-hand smash, ≈ 55%), `attack_stab` (0.5 s), `shoot_bow` (0.7 s, release ≈ 60%),
 `shoot_crossbow` (0.6 s, ≈ 40%), `cast` (0.6 s, one hand forward, ≈ 50%), `cast_area` (0.7 s, both arms up
 then down, ≈ 55%), `channel` (loop, arms out; code spins the model), `hit` (0.3 s flinch), `die` (1.0 s,
-fall and stay down), `dodge` (0.4 s roll/dash). Bosses add `roar` (1.2 s). `char_merchant` needs only `idle`
+fall and stay down), `dodge` (0.55 s: a quick tumble, then a slower rise). Bosses add `roar` (1.2 s).
+`char_player` adds `parry` (0.55 s: low stance, blade held diagonally across the chest, off hand forward),
+`parry_hold` (the guard held, loop) and the walks `walk`, `walk_back`, `walk_left`, `walk_right` (loops,
+planted feet at 1.82 m/s; the right foot touches down at phase 0 in each; side steps without crossing
+the feet, built with a sideways thigh swing, `RigInfo.solve_leg_3d`). `char_merchant` needs only `idle`
 (+ optional `talk`). The exporter drops tracks of bones that don't move, so consumers call
 `Assets.prepare_animations(model)` (sets `deterministic = true` and loop modes for idle/run/channel).
 
@@ -849,7 +892,9 @@ windowed preview scene that saves screenshots to `docs/screenshots/<module>/`, w
   passives, take portals after the boss), logs a summary and quits with 0 (non-zero if broken).
   `--shots=DIR` runs a screenshot tour (menu, town, dungeon fight, inventory, character sheet, passive tree,
   skill book, vendor, stash, death screen) into DIR and quits; it needs a real window (`GTEST_WINDOWED=1`)
-  and skips with a warning when headless. Both live in `scripts/debug/`.
+  and skips with a warning when headless. `--combat-tour=DIR` does the same for the fighting controls
+  (attacking while walking, parry guard / counter / charge, empowered attack + echo, steered dodge).
+  All live in `scripts/debug/`.
 
 ---------------------------------------------------------------------------------------------------------
 
@@ -905,7 +950,8 @@ windowed preview scene that saves screenshots to `docs/screenshots/<module>/`, w
 `fireball_cast`, `explosion`, `frost_nova`, `ice_shatter`, `lightning`, `meteor_impact`, `warcry`,
 `leap_land`, `teleport`, `whirlwind`, `pickup_item`, `pickup_gold`, `drop_item`, `level_up`, `potion`,
 `enemy_die`, `player_hurt`, `player_die`, `boss_roar`, `ui_click`, `ui_open`, `ui_close`, `equip`, `portal`,
-`chest_open`. Call them freely; files arrive in the audio pass.
+`chest_open`, `parry_ready` (guard up), `parry` (a caught blow), `empower` (a parry charge used). Call them
+freely; files arrive in the audio pass.
 
 ---------------------------------------------------------------------------------------------------------
 
@@ -1076,8 +1122,9 @@ name. `ActDefs.regions(act)` lists the town and the layout's zones (`{"id", "nam
   town's finer step around the town, 8 m far away). Relief is flattened on and near walkable cells:
   it eases in over ~3.5 m, but ground below a water plane's level eases in over ~2 m, so shores sit
   ~1 m from the walkable edge. It then builds water planes, tiles, props (chunked MultiMeshes),
-  collision, lights (a moving pool when there are many), glows, shafts, environment, particles,
-  interactables and each zone's `decorate()`; `build_profile` records the time per phase. Regions:
+  the ground detail (below), collision, lights (a moving pool when there are many), glows, shafts,
+  environment, particles, interactables and each zone's `decorate()`; `build_profile` records the time
+  per phase. Regions:
   `region_at`, `is_safe_at`, `get_region_arrival`, `region_level` (base level + offset),
   `current_region`; crossing a border (0.3 s debounce) updates `area_info` (`zone`, `name`, `safe`,
   `level`, `depth`, `cleared`), blends the environment over 2.5 s, and emits `Events.zone_entered`.
@@ -1087,6 +1134,33 @@ name. `ActDefs.regions(act)` lists the town and the layout's zones (`{"id", "nam
   spawning** (`start_lazy_spawns`, `lazy_spawn_tick`, `pending_groups`, `stop_lazy_spawns`): monster
   groups spawn when the player comes within `LAZY_RADIUS` (56 m), a few per 0.25 s, each with its
   zone's level and pool (`EnemyDB.spawn_group`).
+- **Ground detail** (`WorldGroundFx`, `scripts/world/world_ground_fx.gd`, node "GroundFx"):
+  - *Ground shader:* the act ground uses `WorldGroundFx.ground_material(style)`, where style =
+    `WorldActGen.ground_style()` ("forest" / "desert" / "gothic", default the act id). Per vertex the
+    generator gives its colour and four material weights (`ground_detail(x, z)` → UV, UV2). Per pixel
+    the shader draws procedural texture with derivative bump mapping:
+    - forest: gravel, mud and puddles, leaf litter, moss and needles;
+    - desert: pebbles, sandstone slabs, sand bricks, cracked mud, plus wind ripples on open sand;
+    - gothic: mud, puddles, dead leaves, grime.
+  - *Details:* `add_detail(kind, pos, yaw, size, tint, lift)` / `scatter_details` add flat decals, drawn
+    as chunked MultiMesh quads with one procedural shape per kind (`DETAIL_KINDS`: leaf, leaves,
+    twigs, needles, straw, pebbles, bones, splinters, blood, puddle, glass, bricks, cracks, sand, moss,
+    stain). They lie 1.8 cm above the ground, so also on paving.
+  - *Grass:* `add_grass(pos, scale, tint, kind)` / `scatter_grass` add tufts (`GRASS_KINDS`: grass,
+    reeds) in chunked MultiMeshes that fade out beyond ~58 m. They sway in the wind and bend away from
+    "pushers": the player and the monsters within 30 m, plus fading trail points they leave behind
+    (so the grass springs back), at most 32, uploaded to the shared material every frame.
+  - The composer carries details and grass across and blends the weights like the colours. Each act
+    fills them in `_ground_fx_wilds()` / `_ground_fx_hub()`. The preview's `--only=grass,details` shows
+    close-ups.
+- **Fog of war** (`WorldFog`, `scripts/world/world_fog.gd`, `World.fog`): a full-screen pass drawn after
+  the scene. It rebuilds each pixel's floor position from the depth buffer:
+  - ground farther than 14 m from the player darkens (fully at 27 m);
+  - ground never explored (`grid.explored`, uploaded as a texture when it changes) is nearly black,
+    with ragged, drifting edges; towns only use the distance shade.
+  The player reveals `Player.EXPLORE_RADIUS` 22 m around them. The fog is only visible with a player in
+  its world, so previews and tools are unaffected. `World.fog_of_war_enabled` / `set_fog_enabled()`,
+  also exposed in the debug menu's Cheats tab.
 - **Flow** (`main.gd`): `("act", {"act", "zone"})` for another act is a full change (with a "Loading
   …" line on the black screen); for the same act it becomes `"act_local"`, which re-places the player
   in the same World behind a fade (used for the town portal pair, death, and travel within an act).
@@ -1101,7 +1175,7 @@ name. `ActDefs.regions(act)` lists the town and the layout's zones (`{"id", "nam
   outside town in an act.
 - **Camera:** the default view is `CameraRig.PRESETS["diagonal"]` (yaw 37.5°, pitch 49.4°, 19.5 m),
   and there is a `"straight"` preset (yaw 0°, pitch 54.1°). The minimap turns with the camera's yaw,
-  WASD moves relative to the view, middle mouse orbits, F2 shows the camera numbers.
+  WASD moves relative to the view, the right mouse button orbits, F2 shows the camera numbers.
 - **UI:** the Act Explorer (**M**, pause menu, a town's waystone) lists each act's town, zones (with
   levels) and dungeon. The debug menu (**F1**, pause menu, title screen) has Zones (every act zone and
   dungeon, Emberfall, the depths), Teleport (each zone, the boss, the next pack including packs not yet

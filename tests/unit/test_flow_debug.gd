@@ -97,10 +97,16 @@ func test_death_timer_opens_death_screen() -> void:
 	await _await_change(m)
 	GameState.player.take_damage(1.0e7, "chaos")
 	assert_false(UI.is_panel_open("death"), "not right away")
-	var t0 := Time.get_ticks_msec()
-	await m.death_screen_shown
-	var waited := (Time.get_ticks_msec() - t0) / 1000.0
-	assert_between(waited, 0.1, 1.0, "after the delay")
+	# Main counts the delay in game time (frame deltas): count it the same way (wall-clock time
+	# measured mid-frame disagrees with it on a busy machine).
+	var shown := [false]
+	m.death_screen_shown.connect(func() -> void: shown[0] = true, CONNECT_ONE_SHOT)
+	var waited := 0.0
+	while not shown[0] and waited < 3.0:
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	assert_true(shown[0], "death screen signal")
+	assert_between(waited, 0.15, 1.0, "after the delay (%.3f s game time)" % waited)
 	assert_true(UI.is_panel_open("death"), "death screen")
 	assert_true(UI.is_modal_open(), "modal")
 	m.respawn()

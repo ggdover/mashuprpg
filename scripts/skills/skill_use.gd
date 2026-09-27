@@ -45,6 +45,13 @@ var committed: bool = false
 ## Multiplier for internal timings of the use (sequence intervals): 1 at the skill's nominal
 ## speed, smaller with faster attacks / casts, larger while chilled. Set by SkillRunner.
 var time_scale: float = 1.0
+## Empowered by a parry charge (SkillEmpower.apply): extra percent-more damage on every hit,
+## extra projectiles / chains, and whether the runner repeats the delivery once (attack echo).
+var empowered: bool = false
+var more_damage: float = 0.0
+var extra_projectiles: int = 0
+var extra_chains: int = 0
+var echo: bool = false
 
 var _caster: WeakRef = null
 var _target: WeakRef = null
@@ -101,6 +108,11 @@ func fork() -> SkillUse:
 	u.plan = plan.duplicate(true)
 	u.committed = committed
 	u.time_scale = time_scale
+	u.empowered = empowered
+	u.more_damage = more_damage
+	u.extra_projectiles = extra_projectiles
+	u.extra_chains = extra_chains
+	u.echo = echo
 	u._caster = _caster
 	u._target = _target
 	u._fallback = _fallback
@@ -193,6 +205,9 @@ func build_hit(target: Actor, opts: Dictionary = {}) -> HitData:
 		o["target"] = target
 	if not o.has("knockback") and params.has("knockback"):
 		o["knockback"] = float(params["knockback"])
+	if more_damage != 0.0:
+		# Percent-more multipliers stack multiplicatively.
+		o["more"] = ((1.0 + float(o.get("more", 0.0)) / 100.0) * (1.0 + more_damage / 100.0) - 1.0) * 100.0
 	var c := get_caster()
 	var hit: HitData
 	if c != null:

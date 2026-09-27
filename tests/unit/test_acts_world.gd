@@ -199,6 +199,21 @@ func _check_act(act: String) -> void:
 			if String(d["id"]).begins_with(String(BORDER_IDS[act])):
 				n_border += 1
 		assert_true(n_border > 200, "%s border pieces (%d)" % [tag, n_border])
+	# Ground detail: the act's ground shader, flat details and grass (WorldGroundFx), fog of war.
+	assert_true(w.ground_material is ShaderMaterial, "%s ground uses the detail shader" % tag)
+	assert_true(w.ground_fx != null and w.ground_fx.detail_count > 1500, "%s ground details (%d)" % [tag, w.ground_fx.detail_count if w.ground_fx != null else 0])
+	assert_true(w.ground_fx != null and w.ground_fx.grass_count > 3000, "%s grass tufts (%d)" % [tag, w.ground_fx.grass_count if w.ground_fx != null else 0])
+	var gsize := Vector2(w.grid.size) * World.TILE_SIZE
+	var bad := 0
+	for d in w.layout["details"]:
+		if int(d[0]) < 0 or int(d[0]) >= WorldGroundFx.DETAIL_KINDS.size() or float(d[1]) < -60.0 or float(d[2]) < -60.0 or float(d[1]) > gsize.x + 60.0 or float(d[2]) > gsize.y + 60.0:
+			bad += 1
+	assert_eq(bad, 0, "%s details are valid and on the map" % tag)
+	var kinds_used := {}
+	for d in w.layout["details"]:
+		kinds_used[int(d[0])] = true
+	assert_true(kinds_used.size() >= 4, "%s uses several kinds of details (%d)" % [tag, kinds_used.size()])
+	assert_true(w.fog != null, "%s has fog of war" % tag)
 	remove_child(w)
 	w.free()
 	GameState.world = null

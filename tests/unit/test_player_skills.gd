@@ -149,7 +149,7 @@ func test_no_skills_while_frozen_dodging_or_dead() -> void:
 	p.ai_hold_skill(0, true)
 	await _wait(8)
 	assert_eq(r.fk_uses.size(), n, "no use while dodging")
-	await _wait(20)
+	await _wait(30)   # the rest of the 0.55 s roll
 	assert_true(r.fk_uses.size() > n, "used after the roll")
 	p.ai_hold_skill(0, false)
 	await _wait(30)

@@ -249,7 +249,7 @@ def build_player():
 	std_boots(b, J, "Feet", t_boots, w=0.115, l=0.25, h=0.1, shaft=0.2, r=0.066)
 
 	b.build(arm)
-	return arm, dict(s=1.0, weapon=True, arm_swing=24, stabilize_left=True, run_frames=18, duty=0.3), cc_anim.HUMANOID_ANIMS
+	return arm, dict(s=1.0, weapon=True, arm_swing=24, stabilize_left=True, run_frames=18, duty=0.3), cc_anim.PLAYER_ANIMS
 
 
 # =================================================================================== skeleton

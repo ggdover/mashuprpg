@@ -10,6 +10,7 @@ extends Node
 ##        0 when healthy (non-zero when stuck / errors / no progress)
 ##   --shots=DIR   screenshot tour (scripts/debug/debug_shot_tour.gd); needs a real window
 ##   --acts-tour=DIR  acts screenshot tour (scripts/debug/debug_acts_tour.gd); needs a real window
+##   --combat-tour=DIR  parry / movement screenshot tour (scripts/debug/debug_combat_tour.gd); window
 ##
 ## Area change (§15), handled for Events.area_change_requested / town_portal_requested /
 ## respawn_requested and the new game / load requests. Requests while a change is running (or
@@ -53,6 +54,7 @@ const FlowDebugKeys := preload("res://scripts/main/flow_debug_keys.gd")
 const AUTOPLAY_SCRIPT := "res://scripts/debug/debug_autoplay.gd"
 const SHOT_TOUR_SCRIPT := "res://scripts/debug/debug_shot_tour.gd"
 const ACTS_TOUR_SCRIPT := "res://scripts/debug/debug_acts_tour.gd"
+const COMBAT_TOUR_SCRIPT := "res://scripts/debug/debug_combat_tour.gd"
 
 signal area_change_started(area_id: String, params: Dictionary)
 signal area_change_finished(area_info: Dictionary)
@@ -124,6 +126,8 @@ func _ready() -> void:
 		_start_mode(SHOT_TOUR_SCRIPT, "tour")
 	elif args.has("acts-tour"):
 		_start_mode(ACTS_TOUR_SCRIPT, "tour")
+	elif args.has("combat-tour"):
+		_start_mode(COMBAT_TOUR_SCRIPT, "tour")
 	else:
 		show_main_menu()
 

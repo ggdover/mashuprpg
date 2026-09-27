@@ -1,7 +1,7 @@
 class_name Player
 extends Actor
-## The player character: input (WASD move, mouse aim, 6 skill slots, dodge, potions, click to
-## pick up / interact), stats from CharacterData, animated model with gear visuals.
+## The player character: input (WASD move, mouse aim, 6 skill slots, dodge, parry, potions, click
+## to pick up / interact), stats from CharacterData, animated model with gear visuals.
 ## Group "player". Collision layer 2. OWNER: player (wave 2).
 ## CONTRACT — keep every public member/signature. See docs/ARCHITECTURE.md §11.
 ##
@@ -12,9 +12,12 @@ extends Actor
 ##              are skipped while a LineEdit has focus. While ai_control is true real input is
 ##              ignored and the ai_* methods drive the same code paths (calling ai_move / ai_aim /
 ##              ai_hold_skill / ai_interact / ai_dodge / ai_town_portal turns ai_control on).
-##   Move       WASD in screen space (screen-up = world -Z): dir × get_move_speed() ×
+##   Move       WASD relative to the camera: dir × get_move_speed() ×
 ##              skill_runner.movement_multiplier() + knockback_velocity; faces the movement
-##              direction (smoothly) unless a skill is in use.
+##              direction (smoothly) unless a skill is in use. Skills slow the player (at least
+##              SkillRunner.PLAYER_SKILL_MOVE_MULT, movement skills root) instead of rooting;
+##              moving after a skill's hit (its key released) cuts its recovery short, so full
+##              speed comes back at once.
 ##   Aim/hover  camera_rig.get_mouse_ground_position(); hovering a hostile actor targets it (the
 ##              skill aims at its position). Hover changes call set_hovered() on Interactables (and
 ##              on any hovered node with that method, e.g. Enemy) and emit
@@ -25,8 +28,18 @@ extends Actor
 ##              press while busy is buffered for INPUT_BUFFER_TIME. LMB on a hovered GroundItem /
 ##              Interactable auto-walks there (world.find_path) and calls interact(self); WASD or
 ##              another skill cancels the walk.
-##   Dodge      6 m over 0.35 s toward the move dir (or the aim), 0.3 s i-frames, 1.2 s cooldown,
-##              passes through enemies, cancels skills / portal cast / auto-walk, anim "dodge".
+##   Dodge      DODGE_DISTANCE m over DODGE_TIME s toward the move dir (or the aim): a fast start that
+##              slows down quickly (dodge_progress: speed ∝ (1 − t)^DODGE_EASE), steered by WASD
+##              while rolling (DODGE_STEER_RATE), i-frames, 1.2 s cooldown, passes through enemies,
+##              cancels skills / parry / portal cast / auto-walk, anim "dodge".
+##   Parry      Hold Shift: the guard stays up while held (anim "parry_hold", slowed like a skill,
+##              cancels skills; comes back up by itself while still held once it may).
+##              A hit from a hostile during it is caught (no damage): every hostile within
+##              PARRY_RADIUS in a PARRY_ARC_DEG cone in front is knocked back and stunned
+##              (PARRY_STUN s; bosses: half, no knockback) and the player gains a parry charge
+##              (buff "parry_charge", max PARRY_MAX_CHARGES) that empowers the next damaging skill
+##              (SkillEmpower). A successful parry drops the guard and starts PARRY_COOLDOWN; lowering
+##              the guard without a parry costs nothing.
 ##   Potions    life 40% of max life, mana 50% of max mana over 1.5 s (× potion_effect); one charge
 ##              each; not while the same potion is active; charges from Events.enemy_killed.
 ##   Portal     T in a dungeon: 1 s rooted "cast" (cancelled by dodge, freeze, death) ->
@@ -41,7 +54,9 @@ extends Actor
 ##
 ## Extra API for the HUD / flow / bot (beyond the contract): get_aim_position, get_aim_target,
 ## is_auto_walking, get_auto_walk_target, cancel_auto_walk, is_slot_held, get_resist_penalty,
-## is_potion_active, get_potion_active_ratio, get_dodge_cooldown_ratio, can_dodge,
+## is_potion_active, get_potion_active_ratio, get_dodge_cooldown_ratio, can_dodge, can_parry,
+## start_parry, end_parry, is_parrying, get_parry_cooldown_ratio, get_parry_charges, grant_parry_charge,
+## consume_empower, ai_parry, ai_release_parry,
 ## start_town_portal, request_town_portal, cancel_town_portal, is_casting_portal,
 ## get_portal_cast_ratio, is_in_dungeon, get_visual_position, ai_town_portal, ai_release_all,
 ## ai_stop, ai_release_control.
@@ -56,10 +71,28 @@ const DODGE_COLLISION_MASK := 1
 const CAPSULE_RADIUS := 0.4
 const CAPSULE_HEIGHT := 1.8
 
-const DODGE_DISTANCE := 6.0
-const DODGE_TIME := 0.35
-const DODGE_IFRAMES := 0.3
+const DODGE_DISTANCE := 5.0
+## The whole roll including getting up (the "dodge" animation is timed to it).
+const DODGE_TIME := 0.55
+## Speed falls off as (1 − t / DODGE_TIME)^DODGE_EASE: most of the distance is covered early
+## (about 80% in the first 40% of the time), the rise at the end is slow.
+const DODGE_EASE := 2.0
+const DODGE_IFRAMES := 0.35
 const DODGE_COOLDOWN := 1.2
+## How fast WASD turns a roll in progress (radians per second).
+const DODGE_STEER_RATE := 10.0
+
+## Parry (Shift): guard time, cooldowns, the counter cone and what it does to monsters.
+## Cooldown after a successful parry (lowering the guard without one has none).
+const PARRY_COOLDOWN := 3.0
+const PARRY_RADIUS := 5.0
+const PARRY_ARC_DEG := 160.0
+const PARRY_STUN := 1.5
+const PARRY_KNOCKBACK := 13.0
+## Invulnerability right after a successful parry (the rest of a combo does not punish it).
+const PARRY_IFRAMES := 0.35
+const PARRY_MAX_CHARGES := 1
+const PARRY_BUFF := "parry_charge"
 
 const POTION_DURATION := 1.5
 const LIFE_POTION_FRACTION := 0.4
@@ -70,7 +103,8 @@ const POTION_CHARGES_PER_KILL: Array[float] = [0.25, 0.5, 1.0, 3.0]
 const PORTAL_CAST_TIME := 1.0
 
 const EXPLORE_INTERVAL := 0.25
-const EXPLORE_RADIUS := 14.0
+## Radius revealed around the player (fog of war and minimap): about what the camera shows.
+const EXPLORE_RADIUS := 22.0
 ## Hits >= this fraction of max life play the "hit" flinch (when not busy).
 const HIT_ANIM_THRESHOLD := 0.10
 ## Hits > this fraction of max life shake the camera.
@@ -97,6 +131,10 @@ var character: CharacterData = null
 var camera_rig: CameraRig = null
 ## True while a dodge roll is in progress.
 var dodging: bool = false
+## True during the parry guard window.
+var parrying: bool = false
+## Parry charges held (each empowers the next damaging skill).
+var parry_charges: int = 0
 ## Programmatic control (autoplay bot, tests, demos). While true, keyboard/mouse input is ignored
 ## and the ai_* methods drive the player through the same code paths as input.
 var ai_control: bool = false
@@ -131,6 +169,13 @@ var _dodge_left := 0.0
 var _dodge_dir := Vector3.FORWARD
 var _dodge_cooldown := 0.0
 
+var _parry_cooldown := 0.0
+## The parry key (or ai_parry) is held: the guard is up whenever it may be.
+var _parry_held := false
+var _parry_held_by_ai := false
+var _parry_fx: Node3D = null
+var _charge_fx: Node3D = null
+
 ## kind -> {"left": float, "duration": float, "rate": float}
 var _potions: Dictionary = {}
 
@@ -148,6 +193,8 @@ var _walk_stuck := 0.0
 var _explore_timer := 0.0
 var _hurt_sound_cd := 0.0
 var _anim_speed := 0.0
+## Velocity in the model's frame (x = toward its right, y = forward): the leg layer under an action.
+var _anim_local := Vector2.ZERO
 var _messages: Dictionary = {}
 ## Positions at the last two physics ticks (visual interpolation on high refresh rate screens).
 var _phys_prev := Vector3.ZERO
@@ -227,7 +274,7 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	if visuals != null:
-		visuals.update(delta, _anim_speed, is_frozen())
+		visuals.update(delta, _anim_speed, is_frozen(), _anim_local)
 		_interpolate_visuals()
 
 
@@ -373,6 +420,24 @@ func ai_dodge(dir: Vector3) -> void:
 	_try_dodge(dir)
 
 
+## Same path as holding Shift (parry) down: the guard stays up until ai_release_parry(). True if it
+## is up now.
+func ai_parry() -> bool:
+	ai_control = true
+	_parry_held = true
+	_parry_held_by_ai = true
+	if not parrying:
+		start_parry()
+	return parrying
+
+
+## Same path as releasing Shift: lowers the guard.
+func ai_release_parry() -> void:
+	_parry_held = false
+	_parry_held_by_ai = false
+	end_parry()
+
+
 func ai_use_potion(kind: String) -> bool:
 	return use_potion(kind)
 
@@ -383,11 +448,13 @@ func ai_town_portal() -> bool:
 	return request_town_portal()
 
 
-## Release every held skill slot.
+## Release every held skill slot (and the parry key).
 func ai_release_all() -> void:
 	for i in _held.size():
 		_release_slot(i)
 		_pending[i] = 0.0
+	if _parry_held:
+		ai_release_parry()
 
 
 ## Stop moving, release every skill and cancel the auto-walk.
@@ -462,13 +529,86 @@ func get_dodge_cooldown_ratio() -> float:
 	return clampf(_dodge_cooldown / DODGE_COOLDOWN, 0.0, 1.0)
 
 
+## Fraction (0..1) of the dodge distance covered at `u` = elapsed / DODGE_TIME.
+static func dodge_progress(u: float) -> float:
+	return 1.0 - pow(1.0 - clampf(u, 0.0, 1.0), DODGE_EASE + 1.0)
+
+
 func can_dodge() -> bool:
 	return not dead and can_act() and not dodging and _dodge_cooldown <= 0.0
 
 
+func can_parry() -> bool:
+	return not dead and can_act() and not dodging and not parrying and not is_casting_portal() and _parry_cooldown <= 0.0
+
+
+func is_parrying() -> bool:
+	return parrying
+
+
+## 0 = parry ready, 1 = just used.
+func get_parry_cooldown_ratio() -> float:
+	return clampf(_parry_cooldown / PARRY_COOLDOWN, 0.0, 1.0)
+
+
+func get_parry_charges() -> int:
+	return parry_charges
+
+
+## Raise the guard (Shift held). It stays up until end_parry() (key released), a successful parry,
+## a dodge, freeze / stun or death. False when dead, frozen / stunned, dodging, casting the portal,
+## already guarding or on cooldown. Cancels the current skill; faces the aim.
+func start_parry() -> bool:
+	if not can_parry():
+		return false
+	if skill_runner != null and is_instance_valid(skill_runner):
+		skill_runner.cancel()
+	_cancel_auto_walk()
+	parrying = true
+	var d := _aim_pos - global_position
+	d.y = 0.0
+	if d.length_squared() > 0.01:
+		rotation.y = atan2(d.x, d.z)
+	play_action_animation("parry_hold", 0.0)
+	Sfx.play("parry_ready", _gpos(), -4.0)
+	if is_inside_tree():
+		_parry_fx = PlayerFx.parry_guard(self, 0.0)
+	return true
+
+
+## Lower the guard (the parry key released). No cooldown.
+func end_parry() -> void:
+	_end_parry()
+
+
+## One more parry charge (up to PARRY_MAX_CHARGES), shown as the "parry_charge" buff and a gold
+## aura. Called on a successful parry (and by tests / the debug menu).
+func grant_parry_charge() -> void:
+	if dead:
+		return
+	parry_charges = mini(PARRY_MAX_CHARGES, parry_charges + 1)
+	add_buff(PARRY_BUFF, {"name": "Parry Charge", "duration": 0.0, "icon": "", "mods": [],
+		"desc": "Your next damaging skill is empowered: more damage, more projectiles, a bigger area, and attacks strike twice."})
+	if is_inside_tree() and (_charge_fx == null or not is_instance_valid(_charge_fx)):
+		_charge_fx = PlayerFx.charge_aura(self)
+
+
+## SkillRunner hook: use up a parry charge for the skill being started. True if one was used.
+func consume_empower() -> bool:
+	if parry_charges <= 0:
+		return false
+	parry_charges -= 1
+	if parry_charges <= 0:
+		_clear_parry_charges()
+	if is_inside_tree():
+		VfxSpawn.empower(self, SkillEmpower.COLOR)
+	Sfx.play("empower", _gpos())
+	return true
+
+
 ## Start the Town Portal cast (T). False when not in a dungeon, dead, frozen, busy or dodging.
 func start_town_portal() -> bool:
-	if dead or not can_act() or dodging or is_casting_portal():
+	if dead or not can_act() or dodging or parrying or is_casting_portal():
 		return false
 	if not is_in_dungeon():
 		return false
@@ -575,6 +715,8 @@ func stop_action_animation() -> void:
 func _on_death(_killer: Node) -> void:
 	if dodging:
 		_end_dodge()
+	_end_parry()
+	_clear_parry_charges()
 	cancel_town_portal()
 	_cancel_auto_walk()
 	for i in _held.size():
@@ -594,6 +736,15 @@ func _on_death(_killer: Node) -> void:
 	Events.player_died.emit()
 
 
+## A hostile hit while the guard is up is caught: no damage, a counter, the guard drops.
+func _intercept_hit(hit: HitData) -> bool:
+	if not parrying or hit.source_team == team:
+		return false
+	_parry_success(hit)
+	Events.damage_number.emit(get_aim_point(), 0.0, "parry", false)
+	return true
+
+
 # ------------------------------------------------------------------ physics
 
 func _actor_physics(delta: float) -> void:
@@ -604,6 +755,9 @@ func _actor_physics(delta: float) -> void:
 		return
 	if _dodge_cooldown > 0.0:
 		_dodge_cooldown = maxf(0.0, _dodge_cooldown - delta)
+	if _parry_cooldown > 0.0:
+		_parry_cooldown = maxf(0.0, _parry_cooldown - delta)
+	_update_parry(delta)
 	if _hurt_sound_cd > 0.0:
 		_hurt_sound_cd -= delta
 	for i in _pending.size():
@@ -638,7 +792,7 @@ func _poll_input() -> void:
 	else:
 		var v := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 		_move_input = Vector3(v.x, 0.0, v.y)
-		# Camera-relative movement when the camera has been orbited (middle mouse).
+		# Camera-relative movement when the camera has been orbited (right mouse).
 		if camera_rig != null and is_instance_valid(camera_rig) and camera_rig.yaw_deg != 0.0:
 			_move_input = _move_input.rotated(Vector3.UP, deg_to_rad(camera_rig.yaw_deg))
 	for i in _held.size():
@@ -650,6 +804,9 @@ func _poll_input() -> void:
 			still = false
 		if not still:
 			_release_slot(i)
+	if _parry_held and not _parry_held_by_ai and (typing or not Input.is_action_pressed("parry")):
+		_parry_held = false
+		end_parry()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -673,6 +830,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("dodge"):
 		var dir := _move_input if _move_input.length_squared() > 0.0001 else Vector3.ZERO
 		_try_dodge(dir)
+	elif event.is_action_pressed("parry"):
+		# Shift over a panel is a shift-click (inventory, stash), not a parry.
+		if UI.is_mouse_over_ui():
+			return
+		_parry_held = true
+		_parry_held_by_ai = false
+		start_parry()
 	elif event.is_action_pressed("potion_life"):
 		use_potion("life")
 	elif event.is_action_pressed("potion_mana"):
@@ -743,10 +907,16 @@ func _update_movement(delta: float) -> void:
 	var v := Vector3.ZERO
 	var runner_ok := skill_runner != null and is_instance_valid(skill_runner)
 	if dodging:
-		var dt := minf(delta, _dodge_left)
-		var mid := 1.0 - (_dodge_left - dt * 0.5) / DODGE_TIME   # progress at the step's midpoint
-		var speed := DODGE_DISTANCE / DODGE_TIME * (1.5 - mid)
-		v = _dodge_dir * speed * (dt / maxf(delta, 0.00001))
+		# WASD steers the roll.
+		var steer := _ai_move if ai_control else _move_input
+		steer.y = 0.0
+		if steer.length_squared() > 0.0001:
+			_dodge_dir = _turn_toward(_dodge_dir, steer.normalized(), DODGE_STEER_RATE * delta)
+			rotation.y = atan2(_dodge_dir.x, _dodge_dir.z)
+		var t0 := DODGE_TIME - _dodge_left
+		var t1 := minf(DODGE_TIME, t0 + delta)
+		var step := DODGE_DISTANCE * (dodge_progress(t1 / DODGE_TIME) - dodge_progress(t0 / DODGE_TIME))
+		v = _dodge_dir * step / maxf(delta, 0.00001)
 		_dodge_left -= delta
 		if _dodge_left <= 0.00001:
 			_end_dodge()
@@ -764,9 +934,14 @@ func _update_movement(delta: float) -> void:
 			if dead or not is_inside_tree():
 				return
 		dir = dir.limit_length(1.0)
+		# Moving off after a skill's hit (key released) ends its recovery: full speed at once.
+		if runner_ok and dir.length_squared() > 0.0001 and skill_runner.is_busy() and not _is_skill_held(skill_runner.get_current_skill()):
+			skill_runner.end_recovery()
 		var mult := skill_runner.movement_multiplier() if runner_ok else 1.0
+		if parrying:
+			mult = minf(mult, SkillRunner.PLAYER_SKILL_MOVE_MULT)
 		v = dir * get_move_speed() * mult
-		var busy := runner_ok and skill_runner.is_busy()
+		var busy := (runner_ok and skill_runner.is_busy()) or parrying
 		if dir.length_squared() > 0.0001 and not busy and mult > 0.0:
 			var want := atan2(dir.x, dir.z)
 			rotation.y = lerp_angle(rotation.y, want, 1.0 - exp(-TURN_RATE * delta))
@@ -777,6 +952,9 @@ func _update_movement(delta: float) -> void:
 		position.y = 0.0
 	var rv := get_real_velocity()
 	_anim_speed = Vector2(rv.x, rv.z).length() if not dodging else 0.0
+	var fwd := get_forward()
+	var right := -global_transform.basis.x   # models face +Z: their right hand side is -X
+	_anim_local = Vector2(rv.x * right.x + rv.z * right.z, rv.x * fwd.x + rv.z * fwd.z) if not dodging else Vector2.ZERO
 
 
 func _update_explore(delta: float) -> void:
@@ -830,7 +1008,7 @@ func _active_slot() -> int:
 func _update_skills() -> void:
 	if skill_runner == null or not is_instance_valid(skill_runner):
 		return
-	if not can_act() or dodging or is_casting_portal():
+	if not can_act() or dodging or parrying or is_casting_portal():
 		return
 	var slot := _active_slot()
 	if slot < 0:
@@ -871,6 +1049,7 @@ func _try_dodge(dir: Vector3) -> bool:
 		skill_runner.cancel()
 	cancel_town_portal()
 	_cancel_auto_walk()
+	_end_parry()
 	dodging = true
 	_dodge_left = DODGE_TIME
 	_dodge_dir = d
@@ -892,6 +1071,91 @@ func _end_dodge() -> void:
 		collision_mask = COLLISION_MASK
 	if visuals != null and visuals.action_anim == "dodge":
 		stop_action_animation()
+
+
+# ------------------------------------------------------------------ parry
+
+## While the key is held the guard comes (back) up as soon as it may: after the cooldown, a dodge,
+## a stun or a finished skill.
+func _update_parry(_delta: float) -> void:
+	if _parry_held and not parrying and can_parry():
+		start_parry()
+
+
+## Close the guard (key released, a parry, dodge, freeze / stun, death).
+func _end_parry() -> void:
+	if not parrying:
+		return
+	parrying = false
+	if _parry_fx != null and is_instance_valid(_parry_fx):
+		_parry_fx.queue_free()
+	_parry_fx = null
+	if visuals != null and visuals.action_anim == "parry_hold":
+		stop_action_animation()
+
+
+## A hit caught by the guard: turn toward it, knock back and stun every hostile in the cone in
+## front, gain a parry charge and a short invulnerability; the guard drops and the cooldown starts.
+func _parry_success(hit: HitData) -> void:
+	_end_parry()
+	var from := hit.origin
+	if hit.source != null and is_instance_valid(hit.source) and hit.source is Node3D and (hit.source as Node3D).is_inside_tree():
+		from = (hit.source as Node3D).global_position
+	var d := from - global_position
+	d.y = 0.0
+	if d.length_squared() > 0.01:
+		rotation.y = atan2(d.x, d.z)
+	var fwd := get_forward()
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length_squared() > 0.0001 else Vector3.BACK
+	var half := deg_to_rad(PARRY_ARC_DEG * 0.5)
+	for a in CombatQuery.hostiles_in_radius(team, global_position, PARRY_RADIUS):
+		var to := a.global_position - global_position
+		to.y = 0.0
+		var dist := to.length()
+		var dir := to / dist if dist > 0.3 else fwd
+		if dist > 0.3 and fwd.angle_to(dir) > half:
+			continue
+		a.apply_ailment("stun", {"duration": PARRY_STUN, "source": self})
+		if not a.is_boss_actor:
+			a.knockback_velocity += dir * PARRY_KNOCKBACK
+	_parry_cooldown = PARRY_COOLDOWN
+	invulnerable_time = maxf(invulnerable_time, PARRY_IFRAMES)
+	grant_parry_charge()
+	# Riposte: a quick counter-swing.
+	play_action_animation("attack_slash", 0.3)
+	Sfx.play("parry", _gpos())
+	if is_inside_tree():
+		PlayerFx.parry_burst(self)
+		VfxSpawn.shockwave(global_position, fwd, PARRY_RADIUS, PARRY_ARC_DEG, SkillEmpower.COLOR, 0.3)
+		VfxSpawn.hit_spark(global_position + Vector3(0, 1.2, 0) + fwd * 0.7, SkillEmpower.COLOR, true)
+	if camera_rig != null and is_instance_valid(camera_rig):
+		camera_rig.shake(0.18, 0.2)
+
+
+func _clear_parry_charges() -> void:
+	parry_charges = 0
+	if has_buff(PARRY_BUFF):
+		remove_buff(PARRY_BUFF)
+	if _charge_fx != null and is_instance_valid(_charge_fx):
+		_charge_fx.queue_free()
+	_charge_fx = null
+
+
+## True while a bar slot holding `skill_id` is held or has a buffered press.
+func _is_skill_held(skill_id: String) -> bool:
+	if skill_id == "":
+		return false
+	for i in _held.size():
+		if (_held[i] or _pending[i] > 0.0) and get_skill_in_slot(i) == skill_id:
+			return true
+	return false
+
+
+## `from` turned toward `to` (flat unit vectors) by at most max_angle radians.
+static func _turn_toward(from: Vector3, to: Vector3, max_angle: float) -> Vector3:
+	var ang := from.signed_angle_to(to, Vector3.UP)
+	return from.rotated(Vector3.UP, clampf(ang, -max_angle, max_angle)).normalized()
 
 
 # ------------------------------------------------------------------ potions
@@ -1062,7 +1326,7 @@ func _on_damaged(amount: float, _is_crit: bool, _source: Node) -> void:
 
 
 func _is_busy_for_flinch() -> bool:
-	if dodging or is_casting_portal() or _anim_speed > 0.5:
+	if dodging or parrying or is_casting_portal() or _anim_speed > 0.5:
 		return true
 	if skill_runner != null and is_instance_valid(skill_runner) and skill_runner.is_busy():
 		return true
@@ -1070,9 +1334,10 @@ func _is_busy_for_flinch() -> bool:
 
 
 func _on_ailment_changed(kind: String, active: bool) -> void:
-	if kind == "freeze" and active:
+	if (kind == "freeze" or kind == "stun") and active:
 		cancel_town_portal()
 		_cancel_auto_walk()
+		_end_parry()
 
 
 # ------------------------------------------------------------------ helpers

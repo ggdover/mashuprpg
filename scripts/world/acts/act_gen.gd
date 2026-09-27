@@ -118,6 +118,10 @@ var glows: Array = []
 ## Light shafts (god rays): {"pos": Vector3 ground point, "height": float, "width": float,
 ## "yaw": float, "tilt": float (degrees from vertical, leaning towards -yaw), "color": Color}.
 var shafts: Array = []
+## Flat ground details: [kind id, x, z, yaw, size x, size z, tint, lift] (add_detail).
+var details: Array = []
+## Grass tufts: [x, z, yaw, scale, tint, kind id] (add_grass).
+var grass: Array = []
 ## {"kind": "portal"|"vendor"|"stash"|"waystone"|"chest"|"shrine", "pos", "yaw", ...}. Use the
 ## add_* helpers below; they also block cells, add collision and keep-outs.
 var interactables: Array = []
@@ -173,6 +177,8 @@ func generate(p_act: String, p_zone: String, p_seed: int, p_level: int) -> Dicti
 	seed_value = p_seed
 	rng.seed = hash("%s|%s|%d" % [act_id, zone, seed_value])
 	reveal_all = zone == "hub"
+	details = []
+	grass = []
 	generate_zone()
 	if grid == null:
 		push_warning("WorldActGen(%s/%s): generate_zone() made no grid; using the default layout" % [act_id, zone])
@@ -191,6 +197,7 @@ func generate(p_act: String, p_zone: String, p_seed: int, p_level: int) -> Dicti
 		"exits": exits, "dungeon_entrance": dungeon_entrance,
 		"regions": _region_outputs(), "region_map": region_map, "region_themes": region_themes,
 		"region_arrivals": _arrival_outputs(), "links": layout_data.get("links", []),
+		"details": details, "grass": grass, "ground_style": ground_style(),
 	}
 
 
@@ -589,6 +596,147 @@ func scatter(ids: Variant, count: int, rect: Rect2, opts: Dictionary = {}) -> Ar
 				keep(p, keep_r)
 		out.append(d)
 	return out
+
+
+# ------------------------------------------------------------------ ground detail (WorldGroundFx)
+
+## The ground shader style: "" (plain vertex colours), "forest", "desert" or "gothic" (the act's
+## procedural ground texture, see WorldGroundFx). Default: the act id when it is one of those.
+func ground_style() -> String:
+	return act_id if act_id in ["forest", "desert", "gothic"] else ""
+
+
+## Material weights of the ground at a point, 0..1 each, for the style's layers. Called for every
+## ground vertex right after ground_color(x, z) (keep it cheap, reuse what ground_color sampled):
+##   forest: r = gravel, g = mud / puddles, b = leaf litter, a = moss and needles
+##   desert: r = pebbles, g = sandstone slabs, b = sand bricks, a = dried cracked mud (wet near 1)
+##   gothic: r = wet mud, g = puddles, b = dead leaves, a = soot / grime
+func ground_detail(_x: float, _z: float) -> Color:
+	return Color(0, 0, 0, 0)
+
+
+## A flat ground detail (WorldGroundFx.DETAIL_KINDS: leaf, leaves, twigs, needles, straw, pebbles,
+## bones, splinters, blood, puddle, glass, bricks, cracks, sand, moss, stain). It lies on the ground
+## or on paving; size = metres (x along the yaw); tint = its colour (alpha = opacity); lift raises
+## it (a step, a quay).
+func add_detail(kind: String, pos: Vector3, yaw: float = 0.0, size: Vector2 = Vector2.ONE, tint: Color = Color.WHITE, lift: float = 0.0) -> void:
+	details.append([int(WorldGroundFx.DETAIL_KINDS.get(kind, 0)), pos.x, pos.z, yaw, size.x, size.y, tint, lift])
+
+
+## A grass tuft: kind "grass" (~0.4 m) or "reeds" (~1 m), times scale, in its colour. It sways
+## and bends away from the player and monsters walking through it.
+func add_grass(pos: Vector3, scale: float = 1.0, tint: Color = Color(0.3, 0.45, 0.12), kind: String = "grass") -> void:
+	grass.append([pos.x, pos.z, rng.randf() * TAU, scale, tint, int(WorldGroundFx.GRASS_KINDS.get(kind, 0))])
+
+
+## Scatter `count` details (a kind, an Array of kinds or {kind: weight}) over rect. opts: "on"
+## ("walkable" default, "void", "any"), "region", "filter" (Callable(Vector3) -> bool), "size"
+## (Vector2 range of the side, m; default 0.6..1.2), "stretch" (x side × 1..this), "tints" (Array)
+## or "tint", "min_dist", "tries", "clear" (skip spots too close to props / keep-outs: radius).
+## Returns how many were placed.
+func scatter_details(kinds: Variant, count: int, rect: Rect2, opts: Dictionary = {}) -> int:
+	var on := String(opts.get("on", "walkable"))
+	var in_region := String(opts.get("region", ""))
+	var filt: Callable = opts.get("filter", Callable())
+	var size: Vector2 = opts.get("size", Vector2(0.6, 1.2))
+	var stretch := float(opts.get("stretch", 1.0))
+	var tints: Array = opts.get("tints", [opts.get("tint", Color.WHITE)])
+	var min_dist := float(opts.get("min_dist", 0.0))
+	var clear_r := float(opts.get("clear", 0.0))
+	var tries := int(opts.get("tries", count * 4))
+	var placed := {}
+	var bsz := maxf(min_dist, 1.0)
+	var n := 0
+	for t in tries:
+		if n >= count:
+			break
+		var p := Vector3(rng.randf_range(rect.position.x, rect.end.x), 0.0, rng.randf_range(rect.position.y, rect.end.y))
+		var c := world_to_cell(p)
+		if on != "any":
+			var walk := is_walkable_cell(c) or soft.has(c)
+			if (on == "walkable") != walk:
+				continue
+		if in_region != "" and region_of_cell(c) != in_region:
+			continue
+		if filt.is_valid() and not bool(filt.call(p)):
+			continue
+		if clear_r > 0.0 and not is_clear(p, clear_r):
+			continue
+		if min_dist > 0.0:
+			var bk := Vector2i(floori(p.x / bsz), floori(p.z / bsz))
+			var ok := true
+			for dj in range(-1, 2):
+				for di in range(-1, 2):
+					for q in placed.get(bk + Vector2i(di, dj), []):
+						if (q as Vector3).distance_squared_to(p) < min_dist * min_dist:
+							ok = false
+			if not ok:
+				continue
+			if not placed.has(bk):
+				placed[bk] = []
+			(placed[bk] as Array).append(p)
+		var side := rng.randf_range(size.x, size.y)
+		add_detail(pick(kinds) if not kinds is String else String(kinds), p, rng.randf() * TAU,
+			Vector2(side * rng.randf_range(1.0, stretch), side), tints[rng.randi() % tints.size()])
+		n += 1
+	return n
+
+
+## Grass patches: `patches` clusters over rect, each `per_patch` tufts (± 40%) in a disc (opts
+## "radius": Vector2 range, m, default 1.2..3). opts: "on" ("walkable" default, "void", "any" —
+## checked per tuft), "region", "filter" (per tuft), "scale" (Vector2 range), "tints" (Array; one
+## per patch, varied per tuft), "kind" ("grass" / "reeds"), "clear" (keep clear of props / keep-outs
+## by this radius). Returns the tufts placed.
+func scatter_grass(patches: int, per_patch: int, rect: Rect2, opts: Dictionary = {}) -> int:
+	var on := String(opts.get("on", "walkable"))
+	var in_region := String(opts.get("region", ""))
+	var filt: Callable = opts.get("filter", Callable())
+	var rad: Vector2 = opts.get("radius", Vector2(1.2, 3.0))
+	var sc: Vector2 = opts.get("scale", Vector2(0.8, 1.2))
+	var tints: Array = opts.get("tints", [Color(0.3, 0.45, 0.12)])
+	var kind := String(opts.get("kind", "grass"))
+	var clear_r := float(opts.get("clear", 0.35))
+	var n := 0
+	var done := 0
+	for pt in patches * 3:
+		if done >= patches:
+			break
+		var centre := Vector3(rng.randf_range(rect.position.x, rect.end.x), 0.0, rng.randf_range(rect.position.y, rect.end.y))
+		var cc := world_to_cell(centre)
+		if in_region != "" and region_of_cell(cc) != in_region:
+			continue
+		if on == "walkable" and not (is_walkable_cell(cc) or soft.has(cc)):
+			continue
+		var r := rng.randf_range(rad.x, rad.y)
+		var base: Color = tints[rng.randi() % tints.size()]
+		var m := int(per_patch * rng.randf_range(0.6, 1.4))
+		var got := 0
+		for k in m * 2:
+			if got >= m:
+				break
+			var a := rng.randf() * TAU
+			# denser in the middle of the patch
+			var d := r * sqrt(rng.randf()) * (0.55 + 0.45 * rng.randf())
+			var p := centre + Vector3(cos(a) * d, 0.0, sin(a) * d)
+			var c := world_to_cell(p)
+			if on != "any":
+				var walk := is_walkable_cell(c) or soft.has(c)
+				if (on == "walkable") != walk:
+					continue
+			if in_region != "" and region_of_cell(c) != in_region:
+				continue
+			if filt.is_valid() and not bool(filt.call(p)):
+				continue
+			if clear_r > 0.0 and not is_clear(p, clear_r):
+				continue
+			var v := rng.randf_range(0.85, 1.12)
+			var tint := Color(base.r * v * rng.randf_range(0.94, 1.06), base.g * v, base.b * v * rng.randf_range(0.9, 1.1))
+			add_grass(p, rng.randf_range(sc.x, sc.y) * (1.0 - 0.35 * d / maxf(r, 0.01)), tint, kind)
+			got += 1
+		n += got
+		if got > 0:
+			done += 1
+	return n
 
 
 ## Random id from an Array of ids or a {id: weight} Dictionary.
@@ -1320,6 +1468,8 @@ func _reset_outputs() -> void:
 	lights = []
 	glows = []
 	shafts = []
+	details = []
+	grass = []
 	water_rects = []
 	interactables = []
 	exits = {}

@@ -307,6 +307,11 @@ static func fire_projectiles(use: SkillUse, caster: Actor) -> Array:
 	var p := use.params
 	var n := DamageCalc.get_projectile_count(caster, use.skill) if caster != null else maxi(1, int(p.get("count", 1)))
 	var spread := float(p.get("spread", 0.0))
+	if use.extra_projectiles > 0:
+		# Empowered: extra projectiles widen the fan so they stay as far apart as before.
+		if spread > 0.0 and n > 1:
+			spread *= float(n + use.extra_projectiles - 1) / float(n - 1)
+		n += use.extra_projectiles
 	if n > 1 and spread <= 0.0:
 		spread = 10.0 * (n - 1)
 	var out: Array = []
@@ -370,7 +375,7 @@ static func chain(use: SkillUse) -> Array[Actor]:
 	var p := use.params
 	var caster := use.get_caster()
 	var max_range := float(p.get("range", 14.0))
-	var hops := DamageCalc.get_chain(caster, use.skill) if caster != null else int(p.get("chain", 3))
+	var hops := (DamageCalc.get_chain(caster, use.skill) if caster != null else int(p.get("chain", 3))) + use.extra_chains
 	var chain_range := float(p.get("chain_range", 7.0))
 	var start := use.origin + Vector3(0, 1.3, 0)
 	if caster != null and caster.is_inside_tree():

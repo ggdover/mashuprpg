@@ -7,7 +7,7 @@ extends Control
 ##   TELEPORT  points of interest in the current zone: start, boss, merchant, stash, waystone /
 ##             gate, portals, chests, shrine, the next monster pack.
 ##   CHEATS    god mode, monsters on/off (next zone), act monster level, level up, loot, gold, heal,
-##             reveal map, kill boss, remove monsters, far camera, camera view preset.
+##             reveal map, kill boss, remove monsters, far camera, camera view preset, fog of war.
 ## Three tabs (Zones / Teleport / Cheats; the last one used is remembered). Docked on the left (not
 ## modal, the game keeps running). Options live in GameState.act_options.
 ## OWNER: acts framework. Standalone: `var p := DebugPanel.new(); add_child(p); p.on_opened({})`.
@@ -46,6 +46,7 @@ var _god_button: Button
 var _monsters_button: Button
 var _level_mode_button: Button
 var _far_button: Button
+var _fog_button: Button
 var _cam_button: Button
 
 
@@ -311,6 +312,16 @@ func cycle_camera_preset() -> void:
 	_refresh_cheats()
 
 
+## Fog of war on / off (now and in the next zones).
+func set_fog_of_war(on: bool) -> void:
+	var w := GameState.world
+	if w != null and is_instance_valid(w):
+		w.set_fog_enabled(on)
+	else:
+		World.fog_of_war_enabled = on
+	_refresh_cheats()
+
+
 ## Toggle a far camera (to see whole landmarks); the mouse wheel returns to the normal range.
 func toggle_far_camera() -> void:
 	var p := GameState.player
@@ -396,6 +407,7 @@ func _ensure_built() -> void:
 	_far_button = _cheat(grid, "", toggle_far_camera)
 	_level_mode_button = _cheat(grid, "", cycle_level_mode)
 	_cam_button = _cheat(grid, "", cycle_camera_preset)
+	_fog_button = _cheat(grid, "", func() -> void: set_fog_of_war(not World.fog_of_war_enabled))
 	var lv := MenuStyle.hbox(6)
 	lv.add_child(MenuStyle.label("Act monster level", UIStyle.FONT_SMALL, UIStyle.COLOR_TEXT))
 	lv.add_child(MenuStyle.spacer())
@@ -507,6 +519,8 @@ func _refresh_cheats() -> void:
 	_far_button.text = "Far camera: %s" % ("ON" if far else "off")
 	_cam_button.text = "View: %s" % String(CameraRig.PRESETS[CameraRig.preset]["label"]).get_slice(" (", 0)
 	MenuStyle.style_key_button(_far_button, far)
+	_fog_button.text = "Fog of war: %s" % ("ON" if World.fog_of_war_enabled else "off")
+	MenuStyle.style_key_button(_fog_button, World.fog_of_war_enabled)
 
 
 func _add_zone_row(key: String, text: String, tag: String, accent: Color, cb: Callable, here: String) -> void:

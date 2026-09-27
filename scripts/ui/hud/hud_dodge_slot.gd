@@ -62,7 +62,7 @@ func get_tooltip_lines() -> Array:
 	return [
 		{"text": "Dodge Roll", "color": UIStyle.COLOR_TITLE, "size": "title"},
 		{"text": "", "color": UIStyle.COLOR_BORDER, "size": "small", "separator": true},
-		{"text": "Roll 6 metres through monsters, briefly avoiding all hits.", "color": UIStyle.COLOR_TEXT, "size": "normal"},
+		{"text": "Roll %d metres through monsters, briefly avoiding all hits. Steer it with the movement keys." % int(Player.DODGE_DISTANCE), "color": UIStyle.COLOR_TEXT, "size": "normal"},
 		{"text": "Cancels the current skill.  Cooldown: 1.2 s", "color": UIStyle.COLOR_TEXT_DIM, "size": "small"},
 		{"text": "", "color": UIStyle.COLOR_BORDER, "size": "small", "separator": true},
 		{"text": "Press %s" % Controls.label_for("dodge"), "color": UIStyle.COLOR_TEXT_DIM, "size": "small"},

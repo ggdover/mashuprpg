@@ -1,6 +1,6 @@
 extends RefCounted
 ## Small self-freeing visual effects of the player: level-up ring + light column + sparkles, potion
-## swirl, dodge dust, and the town-portal cast swirl. Built in code (unshaded additive shaders,
+## swirl, dodge dust, the town-portal cast swirl, and the parry guard / counter burst / charge aura. Built in code (unshaded additive shaders,
 ## tiny GPUParticles3D, one short-lived OmniLight3D for the level up). Every effect animates with
 ## node-owned tweens and frees itself. OWNER: player (wave 2).
 ## Internal helper of Player: `const PlayerFx := preload("res://scripts/entities/player/player_fx.gd")`.
@@ -74,6 +74,21 @@ void fragment() {
 	float swirl = 0.5 + 0.5 * sin(a * 3.0 - TIME * 9.0 + r * 9.0);
 	float inner = (1.0 - smoothstep(0.0, 0.9, r)) * (0.25 + 0.55 * swirl);
 	ALBEDO = color.rgb * (ring * 2.2 + inner) * alpha * 1.4;
+}
+"""
+
+## Round translucent guard disc (the parry stance) standing in front of the player, additive.
+const GUARD_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
+uniform vec4 color : source_color = vec4(1.0, 0.8, 0.3, 1.0);
+uniform float alpha = 1.0;
+void fragment() {
+	vec2 p = (UV - vec2(0.5)) * 2.0;
+	float r = length(p);
+	float rim = 1.0 - smoothstep(0.0, 0.1, abs(r - 0.84));
+	float fill = (1.0 - smoothstep(0.0, 0.84, r)) * (0.1 + 0.08 * sin(r * 20.0 - TIME * 12.0));
+	ALBEDO = color.rgb * (rim * 1.9 + fill) * alpha;
 }
 """
 
@@ -292,3 +307,102 @@ static func portal_burst(fx: Node3D) -> void:
 	if ring != null and ring.material_override is ShaderMaterial:
 		tw.tween_property(ring.material_override, "shader_parameter/alpha", 0.0, 0.25)
 	tw.chain().tween_callback(fx.queue_free)
+
+
+## The parry stance: a golden guard disc in front of the chest and a ring at the feet, fading in
+## fast (and out over `duration` when it is > 0). With duration <= 0 it stays (a gentle pulse)
+## until the caller frees it (the guard is held).
+static func parry_guard(actor: Node3D, duration: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ParryGuardFx"
+	actor.add_child(root)
+	var mat := _mat("guard", GUARD_SHADER, {"color": GOLD, "alpha": 0.0})
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.5, 1.5)
+	var disc := MeshInstance3D.new()
+	disc.name = "Guard"
+	disc.mesh = quad
+	disc.material_override = mat
+	disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	disc.position = Vector3(0, 1.1, 0.65)   # in front of the chest (models face +Z)
+	root.add_child(disc)
+	var ring_mat := _mat("ring", RING_SHADER, {"color": GOLD, "alpha": 0.8, "thickness": 0.06, "energy": 1.6})
+	var ring := _plane(1.6, ring_mat)
+	ring.position = Vector3(0, 0.05, 0)
+	root.add_child(ring)
+	var tw := root.create_tween()
+	tw.tween_property(mat, "shader_parameter/alpha", 1.0, 0.06)
+	if duration <= 0.0:
+		# Held: settle to a steady glow that breathes a little.
+		tw.tween_property(mat, "shader_parameter/alpha", 0.6, 0.25)
+		var pulse := root.create_tween().set_loops()
+		pulse.tween_interval(0.31)
+		pulse.tween_property(ring_mat, "shader_parameter/alpha", 0.45, 0.5).set_trans(Tween.TRANS_SINE)
+		pulse.tween_property(ring_mat, "shader_parameter/alpha", 0.8, 0.5).set_trans(Tween.TRANS_SINE)
+		return root
+	tw.tween_property(mat, "shader_parameter/alpha", 0.35, maxf(0.05, duration - 0.06)).set_ease(Tween.EASE_IN)
+	tw.parallel().tween_property(ring_mat, "shader_parameter/alpha", 0.0, maxf(0.05, duration - 0.06))
+	tw.tween_callback(root.queue_free)
+	return root
+
+
+## A successful parry: a bright flash where the blow was caught, golden sparks, an expanding
+## ring and a short warm light. Parented to `actor`; frees itself.
+static func parry_burst(actor: Node3D) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ParryBurstFx"
+	actor.add_child(root)
+	var mat := _mat("guard", GUARD_SHADER, {"color": GOLD.lightened(0.2), "alpha": 1.6})
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.5, 1.5)
+	var disc := MeshInstance3D.new()
+	disc.mesh = quad
+	disc.material_override = mat
+	disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	disc.position = Vector3(0, 1.1, 0.65)
+	root.add_child(disc)
+	var ring_mat := _mat("ring", RING_SHADER, {"color": GOLD, "alpha": 1.0, "thickness": 0.05, "energy": 2.6})
+	var ring := _plane(1.0, ring_mat)
+	ring.position = Vector3(0, 0.05, 0)
+	ring.scale = Vector3(0.8, 1, 0.8)
+	root.add_child(ring)
+	var sp := _sparkles(GOLD.lightened(0.3), 28, 0.35, 3.6, 0.6)
+	sp.position = Vector3(0, 1.0, 0.7)
+	root.add_child(sp)
+	var light := OmniLight3D.new()
+	light.light_color = GOLD
+	light.light_energy = 3.5
+	light.omni_range = 6.0
+	light.shadow_enabled = false
+	light.position = Vector3(0, 1.3, 0.8)
+	root.add_child(light)
+	var tw := root.create_tween().set_parallel(true)
+	tw.tween_property(disc, "scale", Vector3(1.8, 1.8, 1.8), 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(mat, "shader_parameter/alpha", 0.0, 0.3).set_ease(Tween.EASE_IN)
+	tw.tween_property(ring, "scale", Vector3(9.0, 1, 9.0), 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(ring_mat, "shader_parameter/alpha", 0.0, 0.45).set_ease(Tween.EASE_IN)
+	tw.tween_property(light, "light_energy", 0.0, 0.4).set_ease(Tween.EASE_IN)
+	tw.chain().tween_interval(0.35)
+	tw.chain().tween_callback(root.queue_free)
+	return root
+
+
+## While the player holds a parry charge: a slowly turning golden ring at the feet and a thin
+## stream of rising sparks. The caller frees it when the charge is used.
+static func charge_aura(actor: Node3D) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ParryChargeFx"
+	actor.add_child(root)
+	var ring_mat := _mat("ring", RING_SHADER, {"color": GOLD, "alpha": 0.75, "thickness": 0.05, "energy": 1.7})
+	var ring := _plane(1.35, ring_mat)
+	ring.position = Vector3(0, 0.05, 0)
+	root.add_child(ring)
+	var sp := _sparkles(GOLD.lightened(0.25), 10, 0.45, 1.6, 1.0)
+	sp.one_shot = false
+	sp.explosiveness = 0.0
+	sp.position = Vector3(0, 0.15, 0)
+	root.add_child(sp)
+	var tw := root.create_tween().set_loops()
+	tw.tween_property(ring_mat, "shader_parameter/alpha", 0.35, 0.6).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(ring_mat, "shader_parameter/alpha", 0.8, 0.6).set_trans(Tween.TRANS_SINE)
+	return root
