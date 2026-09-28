@@ -48,6 +48,26 @@ BONES = [
 BONE_NAMES = [b[0] for b in BONES]
 PARENT = {b[0]: b[1] for b in BONES}
 
+# Armatures built with another bone list (the player's rig, tools/blender/player/pl_rig.py) store it
+# as JSON in the custom property "rig_bones"; every helper below iterates bones_of(arm_obj).
+_BONES_BY_ARM = {}
+
+
+def bones_of(arm_obj):
+	"""The (name, parent, deform) list of an armature: its "rig_bones" property, else BONES."""
+	key = arm_obj.name_full + ":%d" % arm_obj.as_pointer()
+	got = _BONES_BY_ARM.get(key)
+	if got is not None:
+		return got
+	raw = arm_obj.get("rig_bones") if hasattr(arm_obj, "get") else None
+	if raw:
+		import json
+		got = [tuple(b) for b in json.loads(raw)]
+	else:
+		got = BONES
+	_BONES_BY_ARM[key] = got
+	return got
+
 FPS = 30
 
 
@@ -136,16 +156,21 @@ def humanoid(**kw):
 _REST = {}   # rest matrices per armature (see rest_cache); cleared by create_armature
 
 
-def create_armature(J):
-	"""Create the 'Armature' object (identity transform) with the §14.2 bones."""
+def create_armature(J, bones=None):
+	"""Create the 'Armature' object (identity transform) with the §14.2 bones (or `bones`, a list of
+	(name, parent, deform), stored on the object as "rig_bones")."""
 	_REST.clear()   # a new armature may reuse a freed one's address (cache key): never reuse old rests
+	_BONES_BY_ARM.clear()
 	arm = bpy.data.armatures.new("Armature")
 	ob = bpy.data.objects.new("Armature", arm)
 	bpy.context.scene.collection.objects.link(ob)
 	bpy.context.view_layer.objects.active = ob
 	ob.select_set(True)
+	if bones is not None:
+		import json
+		ob["rig_bones"] = json.dumps([list(b) for b in bones])
 	bpy.ops.object.mode_set(mode="EDIT")
-	for name, parent, deform in BONES:
+	for name, parent, deform in (bones or BONES):
 		head, tail, zax = J["bones"][name]
 		eb = arm.edit_bones.new(name)
 		eb.head = head
@@ -241,7 +266,7 @@ def solve(arm_obj, p):
 	"""Pose dict -> ({bone: Quaternion basis}, {bone: Vector local location})."""
 	rots, locs = {}, {}
 	D = {}
-	for name, parent, _deform in BONES:
+	for name, parent, _deform in bones_of(arm_obj):
 		bone = arm_obj.data.bones[name]
 		rest = bone.matrix_local.to_3x3()
 		e = p.get(name, (0.0, 0.0, 0.0))
@@ -268,7 +293,7 @@ class _RestCache:
 		self.local = {}
 		self.local_inv = {}
 		self.rel = {}
-		for name, parent, _deform in BONES:
+		for name, parent, _deform in bones_of(arm_obj):
 			b = arm_obj.data.bones[name]
 			self.local[name] = b.matrix_local.copy()
 			self.local_inv[name] = b.matrix_local.inverted()
@@ -292,7 +317,7 @@ def fk_basis(arm_obj, rots, locs):
 	rc = rest_cache(arm_obj)
 	G = {}
 	P = {}
-	for name, parent, _deform in BONES:
+	for name, parent, _deform in bones_of(arm_obj):
 		q = rots.get(name)
 		R = q.normalized().to_matrix().to_4x4() if q is not None else Matrix.Identity(4)
 		loc = locs.get(name)

@@ -9,6 +9,9 @@ func items_character(class_id: String = "warrior", gold: int = 5000) -> Characte
 	var c := make_character(class_id)
 	for i in c.inventory.size():
 		c.inventory[i] = null
+	# Heroes start without armour; the item tests want an equipped body armour to compare with.
+	var armour := {"warrior": "body_str_1", "ranger": "body_dex_1", "sorcerer": "body_int_1"}
+	c.equip(ItemDB.create_item(String(armour.get(class_id, "body_str_1")), Item.Rarity.NORMAL), "body")
 	c.gold = gold
 	InvActions.buyback.clear()
 	InvActions.vendor_panel = null

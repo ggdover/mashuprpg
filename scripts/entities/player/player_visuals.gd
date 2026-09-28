@@ -1,14 +1,19 @@
 extends Node3D
-## The player's look: the char_player model, its AnimationPlayer (idle / walk / run by speed,
-## time-scaled action one-shots, looping channel with model spin, hit reaction, death), a leg layer
-## (PlayerLegs: walking / backing off / side-stepping legs under an action while the player moves
-## during a skill, blended by the direction of movement), gear visuals
-## (weapon, shield / focus, quiver, helmet attached to bones; armour tints on body parts) and the hit
-## flash.
+## The player's look: the character's player model (char_player_<look>: "f", "m1", "m2", see
+## ClassDefs "looks"), its AnimationPlayer (idle / walk / run by speed, time-scaled action one-shots,
+## looping channel with model spin, hit reaction, death), a leg layer (PlayerLegs: walking / backing
+## off / side-stepping legs under an action while the player moves during a skill, blended by the
+## direction of movement), swinging cape and hair (SpringBoneSimulator3D on the cape_* / hair_*
+## bones, pushed back by the movement), gear visuals and the hit flash.
+## Gear: weapons, shields / foci on the grip bones and quivers on the chest (BoneAttachment3D); armour
+## (helmet, body, gloves, boots) shows the model's own gear piece for the item (PlayerGear: family and
+## tier -> "Helm_str_2"...), hides the base parts the piece covers (hair under helmets, the default
+## outfit under body armour...) and tints the piece's tint_* surfaces with the item's tint.
 ## Child "Visuals" of the Player. OWNER: player (wave 2).
 ## Internal helper of Player: `const PlayerVisuals := preload("res://scripts/entities/player/player_visuals.gd")`.
 
 const PlayerLegs := preload("res://scripts/entities/player/player_legs.gd")
+const PlayerGear := preload("res://scripts/entities/player/player_gear.gd")
 
 ## Planted-foot speed of char_player's run cycle (m/s): run speed_scale = speed / RUN_REF_SPEED.
 const RUN_REF_SPEED := 5.2
@@ -31,10 +36,19 @@ const CHANNEL_SPIN := 2.0
 const LOCO_BLEND := 0.15
 const ACTION_BLEND := 0.06
 const RETURN_BLEND := 0.18
-## Colours for body parts whose slot is empty.
-const NO_BODY_TINT := Color(0.72, 0.64, 0.52)      # plain linen tunic
-const EMPTY_GLOVES_TINT := Color(0.5, 0.38, 0.26)  # bare leather
-const EMPTY_BOOTS_TINT := Color(0.46, 0.34, 0.22)
+## Swinging chains: [root bone, end bone, end length (m), stiffness, drag, gravity, joint radius].
+const SPRING_CHAINS := [
+	["cape_1", "cape_3", 0.28, 2.0, 0.5, 1.2, 0.03],
+	["hair_1", "hair_2", 0.2, 3.0, 0.55, 0.8, 0.025],
+]
+## Body colliders the chains stay out of: [bone, radius, height, offset along the bone].
+const SPRING_COLLIDERS := [
+	["spine", 0.1, 0.5, 0.05],
+	["upper_leg_l", 0.075, 0.44, 0.2],
+	["upper_leg_r", 0.075, 0.44, 0.2],
+]
+## Air drag on cape and hair while moving: external force = -velocity × SPRING_WIND.
+const SPRING_WIND := 0.14
 const HIT_FLASH_COLOR := Color(1.0, 0.32, 0.26)
 ## Flash amount lost per second.
 const FLASH_DECAY := 3.5
@@ -53,29 +67,46 @@ var action_anim := ""
 var action_left := 0.0
 ## Current locomotion animation ("idle" / "run").
 var loco_anim := ""
-## bone -> Node3D attached for the current equipment ("grip_r", "grip_l", "chest", "head").
+## bone -> Node3D attached for the current equipment ("grip_r", "grip_l", "chest").
 var attachments: Dictionary = {}
 var dead := false
+## The model's look ("f", "m1", "m2") and its mesh parts by name (base parts + gear pieces).
+var look := ""
+var parts: Dictionary = {}
+## Gear piece shown per equipment slot ("helmet" -> "Helm_str_2"; missing = none).
+var gear_pieces: Dictionary = {}
+## Cape / hair simulation (null without such bones).
+var springs: SkeletonModifier3D = null
 
 var _reaction := false
 var _flash := 0.0
 ## The leg layer (null for placeholder models or models without a walk).
 var legs: PlayerLegs = null
-var _hair: MeshInstance3D = null
 
 
-func build() -> void:
-	model = Assets.model("char_player")
+## Model id of a look ("char_player_f"); char_player (the default look) when that model is missing.
+static func model_id_for(p_look: String) -> String:
+	var id := "char_player_" + p_look
+	return id if p_look != "" and Assets.has_model(id) else "char_player"
+
+
+## Load the model of `p_look` ("" = the default look), its animations, leg layer and springs.
+func build(p_look: String = "") -> void:
+	look = p_look
+	model = Assets.model(model_id_for(p_look))
 	model.name = "Model"
 	add_child(model)
 	anim = Assets.prepare_animations(model)
-	_hair = Assets.find_part(model, "Hair")
+	parts.clear()
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		parts[String(mi.name)] = mi
 	if anim != null:
 		anim.playback_default_blend_time = 0.0
 		_play_loco("idle", 0.0)
 		_build_legs()
+	_build_springs()
+	_show_gear({})
 
 
 func _build_legs() -> void:
@@ -95,6 +126,45 @@ func _build_legs() -> void:
 	legs = l
 
 
+## Cape and hair chains (SpringBoneSimulator3D, after the animation and the leg layer).
+func _build_springs() -> void:
+	var sk := Assets.find_skeleton(model)
+	if sk == null:
+		return
+	var chains: Array = []
+	for c in SPRING_CHAINS:
+		if sk.find_bone(String(c[0])) >= 0 and sk.find_bone(String(c[1])) >= 0:
+			chains.append(c)
+	if chains.is_empty():
+		return
+	var sim := SpringBoneSimulator3D.new()
+	sim.name = "Springs"
+	sim.setting_count = chains.size()
+	for i in chains.size():
+		var c: Array = chains[i]
+		sim.set_root_bone_name(i, String(c[0]))
+		sim.set_end_bone_name(i, String(c[1]))
+		sim.set_extend_end_bone(i, true)
+		sim.set_end_bone_length(i, float(c[2]))
+		sim.set_stiffness(i, float(c[3]))
+		sim.set_drag(i, float(c[4]))
+		sim.set_gravity(i, float(c[5]))
+		sim.set_radius(i, float(c[6]))
+		sim.set_enable_all_child_collisions(i, true)
+	for c in SPRING_COLLIDERS:
+		if sk.find_bone(String(c[0])) < 0:
+			continue
+		var col := SpringBoneCollisionCapsule3D.new()
+		col.name = "Collider_" + String(c[0])
+		col.bone_name = String(c[0])
+		col.radius = float(c[1])
+		col.height = float(c[2])
+		col.position_offset = Vector3(0.0, float(c[3]), 0.0)
+		sim.add_child(col)
+	sk.add_child(sim)
+	springs = sim
+
+
 # ------------------------------------------------------------------ per-frame update
 
 ## speed: horizontal speed in m/s; frozen pauses the animation. local_velocity: the velocity in the
@@ -102,6 +172,10 @@ func _build_legs() -> void:
 ## action walks, backs off or side-steps by its direction.
 func update(delta: float, speed: float, frozen: bool, local_velocity: Vector2 = Vector2.ZERO) -> void:
 	_update_legs(delta, speed, frozen, local_velocity)
+	if springs != null and is_instance_valid(springs):
+		var body := get_parent() as CharacterBody3D
+		var v := body.velocity if body != null else Vector3.ZERO
+		(springs as SpringBoneSimulator3D).external_force = Vector3(-v.x, 0.0, -v.z) * SPRING_WIND
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - FLASH_DECAY * delta)
 		Assets.set_flash(model, _flash, HIT_FLASH_COLOR)
@@ -270,7 +344,7 @@ func flash(amount: float) -> void:
 
 # ------------------------------------------------------------------ equipment
 
-## Rebuild weapon / off-hand / helmet attachments and body tints from the character's equipment.
+## Rebuild weapon / off-hand attachments and the armour pieces from the character's equipment.
 func apply_equipment(character: CharacterData) -> void:
 	if model == null:
 		return
@@ -283,28 +357,54 @@ func apply_equipment(character: CharacterData) -> void:
 	attachments.clear()
 	var main: Item = character.get_equipped("main_hand") if character != null else null
 	var off: Item = character.get_equipped("off_hand") if character != null else null
-	var helm: Item = character.get_equipped("helmet") if character != null else null
-	var body: Item = character.get_equipped("body") if character != null else null
-	var gloves: Item = character.get_equipped("gloves") if character != null else null
-	var boots: Item = character.get_equipped("boots") if character != null else null
 	if main != null:
 		_attach("grip_r", main)
 	if off != null:
 		_attach("chest" if off.get_weapon_type() == "quiver" else "grip_l", off)
-	if helm != null:
-		_attach("head", helm)
-	if _hair != null:
-		_hair.visible = helm == null
-	var body_tint := body.get_tint() if body != null else NO_BODY_TINT
-	var gloves_tint := gloves.get_tint() if gloves != null else EMPTY_GLOVES_TINT
-	var boots_tint := boots.get_tint() if boots != null else EMPTY_BOOTS_TINT
-	Assets.tint(model, body_tint, PackedStringArray(["Torso", "Arms"]))
-	Assets.tint(model, gloves_tint, PackedStringArray(["Hands"]))
-	Assets.tint(model, boots_tint, PackedStringArray(["Feet"]))
-	# Knee guards follow the boots so the legs match the footwear.
-	Assets.tint(model, boots_tint, PackedStringArray(["Legs"]))
+	var worn := {}
+	if character != null:
+		for slot in PlayerGear.SLOT_PIECES:
+			var it: Item = character.get_equipped(String(slot))
+			if it != null:
+				worn[String(slot)] = it
+	_show_gear(worn)
 	if _flash > 0.0:
 		Assets.set_flash(model, _flash, HIT_FLASH_COLOR)
+
+
+## Show the pieces for `worn` (equipment slot -> Item), hide every other piece and the base parts
+## the shown pieces cover, tint the shown pieces.
+func _show_gear(worn: Dictionary) -> void:
+	gear_pieces.clear()
+	var hidden := {}
+	for slot in worn:
+		var piece := PlayerGear.piece_for(String(slot), worn[slot])
+		if piece == "" or not parts.has(piece):
+			continue
+		gear_pieces[slot] = piece
+		for h in PlayerGear.hides_of(piece):
+			hidden[String(h)] = true
+	var shown := {}
+	for slot in gear_pieces:
+		shown[gear_pieces[slot]] = slot
+	for n in parts:
+		var mi: MeshInstance3D = parts[n]
+		if not is_instance_valid(mi):
+			continue
+		mi.visible = shown.has(n) if PlayerGear.is_piece(n) else not hidden.has(n)
+	for slot in gear_pieces:
+		Assets.tint(model, (worn[slot] as Item).get_tint(), PackedStringArray([gear_pieces[slot]]))
+
+
+## The visible mesh part names (tests / previews).
+func get_visible_parts() -> Array[String]:
+	var out: Array[String] = []
+	for n in parts:
+		var mi: MeshInstance3D = parts[n]
+		if is_instance_valid(mi) and mi.visible:
+			out.append(String(n))
+	out.sort()
+	return out
 
 
 func _attach(bone: String, item: Item) -> void:
@@ -321,7 +421,7 @@ func _attach(bone: String, item: Item) -> void:
 	attachments[bone] = node
 
 
-## The attached model for a bone ("grip_r", "grip_l", "chest", "head") or null.
+## The attached model for a bone ("grip_r", "grip_l", "chest") or null.
 func get_attachment(bone: String) -> Node3D:
 	var n: Variant = attachments.get(bone)
 	return n if is_instance_valid(n) else null

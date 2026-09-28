@@ -9,7 +9,9 @@ extends SkeletonModifier3D
 ## Internal helper: `const PlayerLegs := preload("res://scripts/entities/player/player_legs.gd")`.
 ## OWNER: player.
 
-const LEG_BONES: Array[String] = ["upper_leg_l", "lower_leg_l", "foot_l", "upper_leg_r", "lower_leg_r", "foot_r"]
+## The legs, toes and the hem panels that follow the thighs (missing bones are skipped).
+const LEG_BONES: Array[String] = ["upper_leg_l", "lower_leg_l", "foot_l", "toe_l", "upper_leg_r", "lower_leg_r", "foot_r", "toe_r",
+	"skirt_f", "skirt_b", "skirt_l", "skirt_r"]
 ## Clip name and direction (radians from the facing: 0 forward, +PI/2 right, PI back, -PI/2 left).
 const CLIPS := [["walk", 0.0], ["walk_right", PI * 0.5], ["walk_back", PI], ["walk_left", -PI * 0.5]]
 ## Planted-foot speed of every walk clip (m/s), see cc_anim.WALK_SPEED.

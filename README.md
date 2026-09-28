@@ -297,7 +297,15 @@ blender --background --factory-startup --python tools/blender/acts/build_all.py 
 ```
 
 All three accept `-- --only <ids>` to rebuild just some assets (see the docstring at the top of each
-`build_all.py`). Re-run the Godot `--import` step afterwards.
+`build_all.py`). The player models (the three looks with every gear piece and the animations, plus
+`data/player_gear.json`) have their own driver; `--preview DIR` also renders turnaround sheets and
+`--gear str2` previews a gear set:
+
+```bash
+blender --background --factory-startup --python tools/blender/player/build_player.py -- [--only f,m1,m2]
+```
+
+Re-run the Godot `--import` step afterwards.
 
 ## Isolated test runs (`tools/gtest.sh`)
 

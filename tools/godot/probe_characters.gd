@@ -2,9 +2,10 @@ extends Node
 ## Validation probe for the assets-characters module (docs/ARCHITECTURE.md §14.5).
 ## Loads every character / item model and icon and asserts the import contract:
 ##   * characters: exactly one Skeleton3D and one AnimationPlayer, every §14.3 animation present
-##     (exact names, no "_001"), all §14.2 bones, char_player parts Head/Torso/Arms/Hands/Legs/Feet
-##     each with a tint* material, rough AABB height / feet on y = 0, grip_r / grip_l / head / chest
-##     attachment axes, animation lengths;
+##     (exact names, no "_001"), all §14.2 bones, rough AABB height / feet on y = 0, grip_r / grip_l /
+##     head / chest attachment axes, animation lengths; the player models (char_player_f / _m1 / _m2 and
+##     the char_player alias) also have the player animations, the base parts (Head, HairTop, Body,
+##     Hands, Outfit_*) and every gear piece of data/player_gear.json with a tint* material;
 ##   * items: loads, has a tint* material, rough AABB size and origin conventions;
 ##   * icons: assets/icons/items/<id>.png exists, 128x128;
 ##   * motion (CPU skinning of the posed rig, sampled at 60 Hz like the review did):
@@ -23,6 +24,8 @@ extends Node
 ## Prints a report; every failed assertion is a push_error (so gtest counts it) and the exit code
 ## is the number of failures.
 
+const PlayerGear := preload("res://scripts/entities/player/player_gear.gd")
+
 const MODEL_DIR := "res://assets/models/"
 const ICON_DIR := "res://assets/icons/items/"
 
@@ -30,15 +33,28 @@ const HUMANOID_ANIMS: Array[String] = ["idle", "run", "attack_slash", "attack_sl
 	"shoot_bow", "shoot_crossbow", "cast", "cast_area", "channel", "hit", "die", "dodge"]
 const ANIM_LENGTH := {"idle": 2.0, "run": 0.6, "attack_slash": 0.6, "attack_slam": 0.8, "attack_stab": 0.5,
 	"shoot_bow": 0.7, "shoot_crossbow": 0.6, "cast": 0.6, "cast_area": 0.7, "channel": 1.0, "hit": 0.3,
-	"die": 1.0, "dodge": 0.4, "roar": 1.2}
+	"die": 1.0, "dodge": 0.4, "roar": 1.2, "parry": 0.55, "parry_hold": 1.0}
+## Player models: lengths that differ from the monsters'.
+const PLAYER_ANIM_LENGTH := {"dodge": 0.55}
+## Gear pieces on a corpse (die end): helmet ornaments may dip this far into the floor, nothing
+## higher than GEAR_CORPSE_MAX.
+const GEAR_CORPSE_MIN := -0.15
+const GEAR_CORPSE_MAX := 0.75
 const BONES: Array[String] = ["root", "hips", "spine", "chest", "neck", "head", "upper_arm_l", "upper_arm_r",
 	"lower_arm_l", "lower_arm_r", "hand_l", "hand_r", "grip_l", "grip_r", "upper_leg_l", "upper_leg_r",
 	"lower_leg_l", "lower_leg_r", "foot_l", "foot_r"]
-const PLAYER_PARTS: Array[String] = ["Head", "Torso", "Arms", "Hands", "Legs", "Feet"]
+const PLAYER_PARTS: Array[String] = ["Head", "HairTop", "Body", "Hands", "Outfit_Top", "Outfit_Legs", "Outfit_Feet"]
+const PLAYER_IDS: Array[String] = ["char_player", "char_player_f", "char_player_m1", "char_player_m2"]
+const PLAYER_ANIMS: Array[String] = ["parry", "parry_hold", "walk", "walk_back", "walk_left", "walk_right"]
+## Bones simulated at runtime (spring bones): left out of the corpse check.
+const SIM_BONES: Array[String] = ["hair_1", "hair_2", "cape_1", "cape_2", "cape_3"]
 
 ## id -> [min height, max height]
 const CHARACTERS := {
 	"char_player": [1.7, 2.0],
+	"char_player_f": [1.6, 1.95],
+	"char_player_m1": [1.7, 2.0],
+	"char_player_m2": [1.7, 2.05],
 	"char_skeleton": [1.6, 2.0],
 	"char_zombie": [1.45, 1.95],
 	"char_ghoul": [1.2, 1.9],
@@ -180,6 +196,8 @@ func _probe_character(id: String) -> void:
 		want = HUMANOID_ANIMS.duplicate()
 		if id in BOSSES:
 			want.append("roar")
+		if id in PLAYER_IDS:
+			want.append_array(PLAYER_ANIMS)
 	if ap != null:
 		var names := ap.get_animation_list()
 		for a in want:
@@ -191,20 +209,24 @@ func _probe_character(id: String) -> void:
 					_check(anim.length >= 0.3 and anim.length <= 0.7 and absf(frames - roundf(frames)) < 0.02,
 						"%s: run length %.3f (want 0.3..0.7 s, whole frames)" % [id, anim.length])
 				elif ANIM_LENGTH.has(a):
-					_check(absf(anim.length - ANIM_LENGTH[a]) < 0.04, "%s: %s length %.3f (want %.2f)" % [id, a, anim.length, ANIM_LENGTH[a]])
+					var want_len: float = PLAYER_ANIM_LENGTH.get(a, ANIM_LENGTH[a]) if id in PLAYER_IDS else ANIM_LENGTH[a]
+					_check(absf(anim.length - want_len) < 0.04, "%s: %s length %.3f (want %.2f)" % [id, a, anim.length, want_len])
 				_check(anim.get_track_count() > 0, "%s: %s has no tracks" % [id, a])
 		for n in names:
 			_check(not String(n).contains("_001") and not String(n).contains(".001"), "%s: suffixed animation %s" % [id, n])
-	if id == "char_player":
+	if id in PLAYER_IDS:
 		for p in PLAYER_PARTS:
-			var mi := root.find_child(p, true, false) as MeshInstance3D
-			if _check(mi != null, "char_player: missing part %s" % p):
+			_check(root.find_child(p, true, false) is MeshInstance3D, "%s: missing part %s" % [id, p])
+		var pieces := PlayerGear.pieces()
+		_check(pieces.size() == 36, "%s: data/player_gear.json lists %d pieces (want 36)" % [id, pieces.size()])
+		for p in pieces:
+			var mi := root.find_child(String(p), true, false) as MeshInstance3D
+			if _check(mi != null, "%s: missing gear piece %s" % [id, p]):
 				var ok := false
 				for i in mi.mesh.get_surface_count():
 					var mat := mi.mesh.surface_get_material(i)
 					ok = ok or (mat != null and mat.resource_name.begins_with("tint"))
-				_check(ok, "char_player: part %s has no tint material" % p)
-		_check(root.find_child("Hair", true, false) != null, "char_player: no Hair part")
+				_check(ok, "%s: gear piece %s has no tint material" % [id, p])
 	else:
 		# Draw calls: one skinned "Body" (+ "Weapon" on bosses), one surface per material.
 		var want_parts: Array[String] = ["Body"]
@@ -321,7 +343,7 @@ func _probe_motion(id: String) -> void:
 		return
 	var to_root := _rel_xform(root, sk)
 	var groups := _skin_groups(root, sk)
-	var feet := ["foot_l", "foot_r"]
+	var feet := ["foot_l", "foot_r", "toe_l", "toe_r"]
 	var line := "[motion] %-18s" % id
 	# Run: planted-foot speed per foot.
 	if not (id in NO_RUN) and ap.has_animation("run"):
@@ -375,8 +397,23 @@ func _probe_motion(id: String) -> void:
 	# Corpse at the end of die.
 	if ap.has_animation("die"):
 		_seek(ap, sk, "die", ap.get_animation("die").length)
-		var all_r := _y_range(groups, sk, to_root)
-		var core := _y_range(groups, sk, to_root, CORE_BONES)
+		# players: the base look is checked like a monster; gear pieces (all present in the model)
+		# only loosely; the runtime-simulated hair / cape bones are left out
+		var solid: Array = []
+		var gear: Array = []
+		for g in groups:
+			if String(g["bone_name"]) in SIM_BONES:
+				continue
+			if PlayerGear.is_piece(String(g["part"])):
+				gear.append(g)
+			else:
+				solid.append(g)
+		var all_r := _y_range(solid, sk, to_root)
+		var core := _y_range(solid, sk, to_root, CORE_BONES)
+		if not gear.is_empty():
+			var gr := _y_range(gear, sk, to_root)
+			_check(gr.x >= GEAR_CORPSE_MIN and gr.y <= GEAR_CORPSE_MAX, "%s: die end: gear spans y %.2f..%.2f (want %.2f..%.2f)" % [id, gr.x, gr.y, GEAR_CORPSE_MIN, GEAR_CORPSE_MAX])
+			line += " gear=%.2f..%.2f" % [gr.x, gr.y]
 		_check(all_r.x >= -0.03, "%s: die end: a vertex %.3f m below the floor" % [id, all_r.x])
 		_check(core.x >= -0.02, "%s: die end: torso/head %.3f m below the floor" % [id, core.x])
 		var h: float = CHARACTERS[id][1]
@@ -395,7 +432,7 @@ func _probe_motion(id: String) -> void:
 		line += " slam_weapon=%.3f" % w.x
 	# Player: a two-handed weapon_maul on grip_r (BoneAttachment3D: origin at the bone head, bone
 	# basis) rests on the floor at the slam's hit frame.
-	if id == "char_player":
+	if id in PLAYER_IDS:
 		var maul := _load("weapon_maul")
 		if maul != null:
 			var t: float = HIT_FRAME["attack_slam"] * ap.get_animation("attack_slam").length

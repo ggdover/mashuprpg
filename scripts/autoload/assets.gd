@@ -28,6 +28,7 @@ const SKILL_ICON_DIR := "res://assets/icons/skills/"
 
 var _scene_cache: Dictionary = {}   # id -> PackedScene (or null if missing)
 var _mesh_cache: Dictionary = {}    # id -> Mesh
+var _hidden_paths: Dictionary = {}  # id -> Array[NodePath] of nodes exported hidden
 var _icon_cache: Dictionary = {}    # path -> Texture2D
 var _placeholder_mats: Dictionary = {}
 
@@ -38,10 +39,12 @@ func has_model(id: String) -> bool:
 
 ## New instance of a model. Never returns null: falls back to a coloured placeholder whose shape
 ## follows the id prefix (see _placeholder_mesh). Placeholders are tagged with meta "placeholder".
+## Nodes exported with the glTF extras {"hidden": 1} (the player models' gear pieces) start hidden.
 func model(id: String) -> Node3D:
 	var ps := _get_scene(id)
 	if ps != null:
 		var inst := ps.instantiate()
+		_hide_exported_hidden(id, inst)
 		if inst is Node3D:
 			return inst
 		var wrapper := Node3D.new()
@@ -57,6 +60,24 @@ func model(id: String) -> Node3D:
 	mi.material_override = _placeholder_material(id)
 	root.add_child(mi)
 	return root
+
+
+func _hide_exported_hidden(id: String, inst: Node) -> void:
+	var paths: Variant = _hidden_paths.get(id)
+	if paths == null:
+		var found: Array[NodePath] = []
+		for n in inst.find_children("*", "Node3D", true, false):
+			if not n.has_meta("extras"):
+				continue
+			var ex: Variant = n.get_meta("extras")
+			if ex is Dictionary and bool((ex as Dictionary).get("hidden", false)):
+				found.append(inst.get_path_to(n))
+		_hidden_paths[id] = found
+		paths = found
+	for p: NodePath in paths:
+		var n := inst.get_node_or_null(p) as Node3D
+		if n != null:
+			n.visible = false
 
 
 ## The first Mesh found inside a model (depth-first). For environment kit pieces, which are

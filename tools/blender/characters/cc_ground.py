@@ -189,7 +189,7 @@ def _curves(arm, act):
 def eval_frame(arm, curves, f):
 	"""Bone-local (rots, locs) of the action at frame f, straight from its F-curves."""
 	rots, locs = {}, {}
-	for name in cc_rig.BONE_NAMES:
+	for name in [b[0] for b in cc_rig.bones_of(arm)]:
 		qc = [curves.get((name, "rotation_quaternion", i)) for i in range(4)]
 		if all(c is not None for c in qc):
 			rots[name] = Quaternion([c.evaluate(f) for c in qc])

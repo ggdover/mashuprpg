@@ -7,7 +7,9 @@ extends Control
 ##   TELEPORT  points of interest in the current zone: start, boss, merchant, stash, waystone /
 ##             gate, portals, chests, shrine, the next monster pack.
 ##   CHEATS    god mode, monsters on/off (next zone), act monster level, level up, loot, gold, heal,
-##             reveal map, kill boss, remove monsters, far camera, camera view preset, fog of war.
+##             reveal map, kill boss, remove monsters, far camera, camera view preset, fog of war;
+##             wardrobe: wear a full armour set of any family (STR / DEX / INT) and gear look tier
+##             (I common, II rare, III unique), or take the armour off.
 ## Three tabs (Zones / Teleport / Cheats; the last one used is remembered). Docked on the left (not
 ## modal, the game keeps running). Options live in GameState.act_options.
 ## OWNER: acts framework. Standalone: `var p := DebugPanel.new(); add_child(p); p.on_opened({})`.
@@ -267,6 +269,29 @@ func full_heal() -> void:
 	Events.notify.emit("Life, mana and potions refilled", UIStyle.COLOR_GOOD)
 
 
+## Wear a full armour set (helmet, body, gloves, boots) of `family` ("str", "dex", "int") at gear look
+## `tier` 1..3 (base tiers 1 / 3 / 5). The armour worn before is dropped (debug).
+func equip_armour_set(family: String, tier: int) -> void:
+	var c := GameState.character
+	if c == null:
+		return
+	var base_tier: int = [1, 3, 5][clampi(tier, 1, 3) - 1]
+	for slot in ["helmet", "body", "gloves", "boots"]:
+		var it := ItemDB.create_item("%s_%s_%d" % [slot, family, base_tier], Item.Rarity.NORMAL, 1)
+		if it != null and not it.get_base().is_empty():
+			c.equip(it, slot)
+	Events.notify.emit("Wearing %s armour, tier %d" % [family.to_upper(), tier], UIStyle.COLOR_GOOD)
+
+
+## Take off helmet, body armour, gloves and boots (dropped; debug).
+func remove_armour() -> void:
+	var c := GameState.character
+	if c == null:
+		return
+	for slot in ["helmet", "body", "gloves", "boots"]:
+		c.unequip(slot)
+
+
 func reveal_map() -> void:
 	var w := GameState.world
 	if w != null and is_instance_valid(w) and w.grid != null:
@@ -424,6 +449,19 @@ func _ensure_built() -> void:
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size = Vector2(WIDTH - 10, 0)
 	cheats_page.add_child(note)
+	cheats_page.add_child(_header("Wardrobe"))
+	var wg := GridContainer.new()
+	wg.columns = 3
+	wg.add_theme_constant_override("h_separation", 6)
+	wg.add_theme_constant_override("v_separation", 4)
+	cheats_page.add_child(wg)
+	for fam in ["str", "dex", "int"]:
+		for t in [1, 2, 3]:
+			var b := MenuStyle.make_button("%s %s" % [fam.to_upper(), ["I", "II", "III"][t - 1]], UIStyle.FONT_SMALL)
+			b.custom_minimum_size = Vector2((WIDTH - 18) / 3.0, 0)
+			b.pressed.connect(equip_armour_set.bind(fam, t))
+			wg.add_child(b)
+	_cheat(cheats_page, "Remove armour", remove_armour)
 	show_tab(tab)
 
 

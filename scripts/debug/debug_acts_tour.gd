@@ -31,7 +31,7 @@ func _run() -> void:
 	await _shot("00_main_menu")
 	# Into the game the way "Explore the Acts" does it, with a boosted sorcerer.
 	GameState.act_options = {"level_mode": "custom", "level": TOUR_LEVEL, "monsters": true, "open_on_enter": true, "god_mode": true}
-	Events.new_game_requested.emit("Act Explorer", CLASS_ID)
+	Events.new_game_requested.emit("Act Explorer", CLASS_ID, "")
 	_boost()
 	await _await_area()
 	await _wait(1.0)

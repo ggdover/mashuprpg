@@ -101,11 +101,12 @@ func test_equipment_changes_recalculate() -> void:
 	assert_true(bool(w["two_handed"]), "two-handed")
 	c.unequip("main_hand")
 	assert_eq(p.get_weapon()["weapon_type"], "unarmed", "unarmed without a weapon")
-	# Body armour defences come in as flat mods.
-	var body: Item = c.get_equipped("body")
-	assert_not_null(body, "starting body armour")
-	if body != null:
-		assert_true(p.armour >= float(body.get_defence_stats()["armour"]) - 0.01, "armour from the body armour")
+	# Body armour defences come in as flat mods (heroes start without armour).
+	assert_eq(c.get_equipped("body"), null, "no starting body armour")
+	var armour0 := p.armour
+	var body := ItemDB.create_item("body_str_1", Item.Rarity.NORMAL, 1)
+	c.equip(body, "body")
+	assert_true(p.armour >= armour0 + float(body.get_defence_stats()["armour"]) - 0.01, "armour from the body armour")
 	Events.player_stats_changed.disconnect(cb)
 
 

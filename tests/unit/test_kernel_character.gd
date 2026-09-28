@@ -44,7 +44,7 @@ func item(base_id: String) -> Item:
 
 
 func test_new_character_per_class() -> void:
-	var expected := {"warrior": ["sword_1", "body_str_1"], "ranger": ["bow_1", "body_dex_1"], "sorcerer": ["wand_1", "body_int_1"]}
+	var expected := {"warrior": ["sword_1", "m1"], "ranger": ["bow_1", "f"], "sorcerer": ["wand_1", "f"]}
 	for cid in expected:
 		var c := GameState.new_character("  Tester  ", cid)
 		assert_eq(GameState.character, c, "current character")
@@ -57,7 +57,8 @@ func test_new_character_per_class() -> void:
 		assert_eq(c.life_potion_charges, 3.0, "life potions")
 		assert_eq(c.mana_potion_charges, 3.0, "mana potions")
 		assert_eq(c.get_equipped("main_hand").base_id, expected[cid][0], "%s weapon" % cid)
-		assert_eq(c.get_equipped("body").base_id, expected[cid][1], "%s armour" % cid)
+		assert_eq(c.get_equipped("body"), null, "%s starts without armour (the look's default outfit)" % cid)
+		assert_eq(c.get_look(), expected[cid][1], "%s look" % cid)
 		assert_eq(c.get_equipped("main_hand").rarity, Item.Rarity.NORMAL, "normal start item")
 		assert_eq(c.first_free_inventory_index(), 0, "empty inventory")
 		assert_eq(c.skill_bar, ClassDefs.get_start_skill_bar(cid), "skill bar")
@@ -384,6 +385,7 @@ func test_potions() -> void:
 
 func test_serialization_round_trip() -> void:
 	var c := GameState.new_character("Round Trip", "ranger")
+	c.equip(item("body_dex_1"), "body")
 	c.add_xp(300)
 	c.add_gold(1234)
 	c.add_bonus_passive_points(2)
@@ -404,6 +406,14 @@ func test_serialization_round_trip() -> void:
 	var r := CharacterData.from_dict(parsed)
 	assert_eq(r.char_name, "Round Trip", "name")
 	assert_eq(r.class_id, "ranger", "class")
+	assert_eq(r.get_look(), "f", "look")
+	var w := GameState.new_character("Look Trip", "warrior", "m2")
+	var w2 := CharacterData.from_dict(JSON.parse_string(JSON.stringify(w.to_dict())))
+	assert_eq(w2.appearance, "m2", "appearance saved")
+	assert_eq(w2.get_look(), "m2", "warrior look kept")
+	var bad_look := w.to_dict()
+	bad_look["appearance"] = "f"
+	assert_eq(CharacterData.from_dict(bad_look).get_look(), "m1", "invalid look falls back to the class default")
 	assert_eq(r.level, c.level, "level")
 	assert_eq(typeof(r.level), TYPE_INT, "int level")
 	assert_eq(r.xp, c.xp, "xp")

@@ -1,0 +1,353 @@
+{
+ "pieces": {
+  "Boots_dex_1": {
+   "family": "dex",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "common hunter: tall laced boots with fur cuffs",
+   "slot": "boots",
+   "tier": 1
+  },
+  "Boots_dex_2": {
+   "family": "dex",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "rare ranger: tall laced boots, fur cuffs, bronze buckles",
+   "slot": "boots",
+   "tier": 2
+  },
+  "Boots_dex_3": {
+   "family": "dex",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "unique frostbound: plated dark boots, knee cops, straps, gold trim",
+   "slot": "boots",
+   "tier": 3
+  },
+  "Boots_int_1": {
+   "family": "int",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "cross-strapped leather boots, cloth wraps over the trousers",
+   "slot": "boots",
+   "tier": 1
+  },
+  "Boots_int_2": {
+   "family": "int",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "heeled boots with steel greaves and knee cops",
+   "slot": "boots",
+   "tier": 2
+  },
+  "Boots_int_3": {
+   "family": "int",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "tall armoured heeled boots, silver plates, glowing runes",
+   "slot": "boots",
+   "tier": 3
+  },
+  "Boots_str_1": {
+   "family": "str",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "strapped fur-topped boots, round knee pads",
+   "slot": "boots",
+   "tier": 1
+  },
+  "Boots_str_2": {
+   "family": "str",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "leather boots, steel greaves, knee cops, fur cuffs",
+   "slot": "boots",
+   "tier": 2
+  },
+  "Boots_str_3": {
+   "family": "str",
+   "hides": [
+    "Outfit_Feet"
+   ],
+   "notes": "alpha boots: wolf-head knee cops, plated greaves, fur, sabatons",
+   "slot": "boots",
+   "tier": 3
+  },
+  "Chest_dex_1": {
+   "family": "dex",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt",
+    "HairFront"
+   ],
+   "notes": "common hunter: leather vest over a long linen shirt, green cowl, straps",
+   "slot": "chest",
+   "tier": 1
+  },
+  "Chest_dex_2": {
+   "family": "dex",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt",
+    "HairFront"
+   ],
+   "notes": "rare ranger: dark green coat with gold borders, fur mantle, harness, green cloak with a tree emblem",
+   "slot": "chest",
+   "tier": 2
+  },
+  "Chest_dex_3": {
+   "family": "dex",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt",
+    "HairFront"
+   ],
+   "notes": "unique frostbound: white fur mantle with a wolf head, navy fur-trimmed coat, rune tabard, blue cloak",
+   "slot": "chest",
+   "tier": 3
+  },
+  "Chest_int_1": {
+   "family": "int",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt"
+   ],
+   "notes": "beige robe, blue shawl with brooch, blue / teal over-skirt, belts, satchel, book",
+   "slot": "chest",
+   "tier": 1
+  },
+  "Chest_int_2": {
+   "family": "int",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt"
+   ],
+   "notes": "navy coat, steel pauldrons and breastplate, straps, rune panel, purple cape",
+   "slot": "chest",
+   "tier": 2
+  },
+  "Chest_int_3": {
+   "family": "int",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt"
+   ],
+   "notes": "long dark rune robe, black fur mantle, white / pale blue layers, rune cape",
+   "slot": "chest",
+   "tier": 3
+  },
+  "Chest_str_1": {
+   "family": "str",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt"
+   ],
+   "notes": "studded leather jerkin, mail sleeves, fur collar",
+   "slot": "chest",
+   "tier": 1
+  },
+  "Chest_str_2": {
+   "family": "str",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt"
+   ],
+   "notes": "scale cuirass over a teal tunic, fur mantle, red cape",
+   "slot": "chest",
+   "tier": 2
+  },
+  "Chest_str_3": {
+   "family": "str",
+   "hides": [
+    "Outfit_Top",
+    "Outfit_Belt"
+   ],
+   "notes": "wolf knight: plate, wolf pelt, blue tabard and cloak",
+   "slot": "chest",
+   "tier": 3
+  },
+  "Gloves_dex_1": {
+   "family": "dex",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "common hunter: leather gloves, wrapped bracers",
+   "slot": "gloves",
+   "tier": 1
+  },
+  "Gloves_dex_2": {
+   "family": "dex",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "rare ranger: runed leather bracers with gold trim, dark gloves",
+   "slot": "gloves",
+   "tier": 2
+  },
+  "Gloves_dex_3": {
+   "family": "dex",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "unique frostbound: dark runed steel bracers with gold trim, dark leather gloves",
+   "slot": "gloves",
+   "tier": 3
+  },
+  "Gloves_int_1": {
+   "family": "int",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "fingerless leather gloves, wrapped cloth bracers",
+   "slot": "gloves",
+   "tier": 1
+  },
+  "Gloves_int_2": {
+   "family": "int",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "dark gloves under runed steel vambraces",
+   "slot": "gloves",
+   "tier": 2
+  },
+  "Gloves_int_3": {
+   "family": "int",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "long black gloves, runed silver bracers",
+   "slot": "gloves",
+   "tier": 3
+  },
+  "Gloves_str_1": {
+   "family": "str",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "leather gloves, bracers with an iron plate",
+   "slot": "gloves",
+   "tier": 1
+  },
+  "Gloves_str_2": {
+   "family": "str",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "plated gloves, runed vambraces",
+   "slot": "gloves",
+   "tier": 2
+  },
+  "Gloves_str_3": {
+   "family": "str",
+   "hides": [
+    "Hands",
+    "Outfit_Wraps"
+   ],
+   "notes": "runed plate gauntlets with flared cuffs",
+   "slot": "gloves",
+   "tier": 3
+  },
+  "Helm_dex_1": {
+   "family": "dex",
+   "hides": [
+    "HairTop",
+    "HairBack"
+   ],
+   "notes": "common hunter: green hood, leather brow band",
+   "slot": "helm",
+   "tier": 1
+  },
+  "Helm_dex_2": {
+   "family": "dex",
+   "hides": [
+    "HairTop",
+    "HairBack"
+   ],
+   "notes": "rare ranger: gold-banded steel cap, cheek flaps, dark green hood",
+   "slot": "helm",
+   "tier": 2
+  },
+  "Helm_dex_3": {
+   "family": "dex",
+   "hides": [
+    "HairTop"
+   ],
+   "notes": "unique frostbound: dark winged helm, gold brow arches, nasal, cheek guards",
+   "slot": "helm",
+   "tier": 3
+  },
+  "Helm_int_1": {
+   "family": "int",
+   "hides": [
+    "HairTop",
+    "HairBack"
+   ],
+   "notes": "blue hood with a patterned border (face open, front hair strands show)",
+   "slot": "helm",
+   "tier": 1
+  },
+  "Helm_int_2": {
+   "family": "int",
+   "hides": [
+    "HairTop"
+   ],
+   "notes": "silver half-helm: nasal, cheek guards, violet gem, plume",
+   "slot": "helm",
+   "tier": 2
+  },
+  "Helm_int_3": {
+   "family": "int",
+   "hides": [],
+   "notes": "dark spiked crown with a glowing gem, worn over the hair",
+   "slot": "helm",
+   "tier": 3
+  },
+  "Helm_str_1": {
+   "family": "str",
+   "hides": [
+    "HairTop"
+   ],
+   "notes": "riveted nasal spangenhelm",
+   "slot": "helm",
+   "tier": 1
+  },
+  "Helm_str_2": {
+   "family": "str",
+   "hides": [
+    "HairTop"
+   ],
+   "notes": "gilded spangenhelm with cheek guards",
+   "slot": "helm",
+   "tier": 2
+  },
+  "Helm_str_3": {
+   "family": "str",
+   "hides": [
+    "HairTop",
+    "HairBack",
+    "HairFront"
+   ],
+   "notes": "wolf helm over a blue hood",
+   "slot": "helm",
+   "tier": 3
+  }
+ },
+ "version": 1
+}

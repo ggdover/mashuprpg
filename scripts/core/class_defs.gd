@@ -5,16 +5,23 @@ extends RefCounted
 ## Keep ids, keys and signatures. See docs/ARCHITECTURE.md §11.
 ## Class attributes are NOT stored on the character: Player.get_base_mods() adds
 ## get_attribute_mods(class_id) (flat Strength / Dexterity / Intelligence).
+## "looks": the player model looks the class can pick at creation (CharacterData.appearance), the
+## first is the default: "f" = the female exile, "m1" / "m2" = the two male exiles
+## (assets/models/char_player_<look>.glb, tools/blender/player). A new hero starts with only a
+## weapon, dressed in the look's default outfit.
 
 const ATTRIBUTES: Array[String] = ["strength", "dexterity", "intelligence"]
 const DEFAULT_CLASS := "warrior"
+## Every player look (see "looks") and its display name at character creation.
+const LOOK_NAMES := {"f": "The Exile", "m1": "The Wanderer", "m2": "The Outcast"}
 
 const CLASSES := {
 	"warrior": {
 		"name": "Warrior",
 		"description": "A hardened fighter. Strength: life, armour and melee damage.",
 		"attributes": {"strength": 20, "dexterity": 12, "intelligence": 10},
-		"start_items": ["sword_1", "body_str_1"],
+		"start_items": ["sword_1"],
+		"looks": ["m1", "m2"],
 		"skill_bar": ["basic_attack", "cleave", "", "", "", ""],
 		"color": Color(0.8, 0.25, 0.2),
 	},
@@ -22,7 +29,8 @@ const CLASSES := {
 		"name": "Ranger",
 		"description": "A deadly marksman. Dexterity: evasion, attack speed and projectiles.",
 		"attributes": {"strength": 12, "dexterity": 20, "intelligence": 10},
-		"start_items": ["bow_1", "body_dex_1"],
+		"start_items": ["bow_1"],
+		"looks": ["f"],
 		"skill_bar": ["basic_attack", "split_arrow", "", "", "", ""],
 		"color": Color(0.3, 0.75, 0.3),
 	},
@@ -30,7 +38,8 @@ const CLASSES := {
 		"name": "Sorcerer",
 		"description": "A master of the elements. Intelligence: mana, energy shield and spells.",
 		"attributes": {"strength": 10, "dexterity": 12, "intelligence": 20},
-		"start_items": ["wand_1", "body_int_1"],
+		"start_items": ["wand_1"],
+		"looks": ["f"],
 		"skill_bar": ["fireball", "basic_attack", "", "", "", ""],
 		"color": Color(0.3, 0.45, 0.95),
 	},
@@ -96,3 +105,19 @@ static func get_start_skill_bar(class_id: String) -> Array[String]:
 
 static func get_color(class_id: String) -> Color:
 	return get_class_def(class_id).get("color", Color.WHITE)
+
+
+## The looks a class can pick, default first (["m1"] for unknown classes).
+static func get_looks(class_id: String) -> Array[String]:
+	var out: Array[String] = []
+	for l in get_class_def(class_id).get("looks", []):
+		out.append(String(l))
+	if out.is_empty():
+		out.append("m1")
+	return out
+
+
+## The look to show: `appearance` when the class can pick it, else the class default.
+static func get_look(class_id: String, appearance: String = "") -> String:
+	var looks := get_looks(class_id)
+	return appearance if looks.has(appearance) else looks[0]

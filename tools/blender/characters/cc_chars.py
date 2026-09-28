@@ -3,11 +3,10 @@ skinned mesh parts and returns (armature, animation style, action list).
 
 Every mesh is modelled in the rest pose in "unit" coordinates (a 1.8 m humanoid at the origin facing
 -Y) and scaled by the character's scale when added; each primitive is skinned 100% to one bone.
-Parts: Head, Torso, Arms, Hands, Legs, Feet (+ Hair / Details / Weapon where useful). char_player
-exports them as separate mesh objects (tinting, Hair); monsters and the merchant join everything except
-"Weapon" into ONE skinned object "Body" (Body.build(merge=True)) = one draw per material.
-Monsters keep their natural colours on tint_* materials (Assets.tint multiplies them for rarity or
-archetype variants); char_player uses pale ~0.8 tint_* gear materials (§14.1).
+Parts: Head, Torso, Arms, Hands, Legs, Feet (+ Hair / Details / Weapon where useful); monsters and
+the merchant join everything except "Weapon" into ONE skinned object "Body" (Body.build(merge=True)) =
+one draw per material. Monsters keep their natural colours on tint_* materials (Assets.tint multiplies
+them for rarity or archetype variants). The player models are built by tools/blender/player.
 """
 import math
 import random
@@ -176,80 +175,6 @@ def head_loft(hz, w=0.112, d=0.122, h=0.29, cy=0.006, n=8, chin=0.62, jaw=0.9):
 def eyes(b, part, hz, m, y=-0.118, z=0.135, x=0.044, size=(0.026, 0.014, 0.03), bone="head"):
 	for sx in (-1, 1):
 		b.add(part, box(size, center=(sx * x, y, hz + z)), m, bone)
-
-
-# =================================================================================== player
-
-def build_player():
-	J, arm = rig()
-	b = Body(J)
-	hz = J["head_z"]
-	skin = mat("skin", hexc("e0a784"), rough=0.8)
-	hair = mat("hair", hexc("6a4428"), rough=0.9)
-	eye = mat("eye_dark", hexc("1a1412"), rough=0.5)
-	pants = mat("pants", hexc("4a4038"), rough=0.9)
-	belt = mat("leather_dark", hexc("3b2616"), rough=0.8)
-	gold = mat("gold", hexc("e8b04a"), rough=0.35, metal=0.5)
-	t_body = tint_mat("tint_body")
-	t_head = tint_mat("tint_head")
-	t_gloves = tint_mat("tint_gloves")
-	t_boots = tint_mat("tint_boots")
-	t_legs = tint_mat("tint_legs")
-	W, D, H = 0.114, 0.124, 0.29
-
-	# ---- Head
-	b.add("Head", head_loft(hz, W, D, H), skin, "head")
-	b.add("Head", box((0.034, 0.045, 0.055), center=(0, -0.128, hz + 0.115), top=(0.55, 0.45), shift=(0, 0.008)), skin, "head")
-	eyes(b, "Head", hz, eye, y=-0.123, z=0.148, x=0.046, size=(0.024, 0.012, 0.03))
-	for sx in (-1, 1):
-		b.add("Head", box((0.022, 0.045, 0.058), center=(sx * 0.116, 0.012, hz + 0.13)), skin, "head")
-		b.add("Head", box((0.042, 0.014, 0.012), center=(sx * 0.046, -0.126, hz + 0.178)), hair, "head")
-	b.add("Head", box((0.05, 0.012, 0.012), center=(0, -0.121, hz + 0.07)), mat("mouth", hexc("8a4a3a")), "head")
-	b.add("Head", cyl((0, 0.005, J["neck_z"] - 0.03), (0, 0.005, hz + 0.05), 0.055, 0.05, n=6), skin, "neck")
-	b.add("Head", loft([(J["neck_z"] - 0.015, 0.125, 0.1, 0, 0.005), (J["neck_z"] + 0.04, 0.078, 0.07, 0, 0.005)], n=8), t_head, "chest")
-
-	# ---- Hair (optional part; hide it under helmets)
-	b.add("Hair", hair_cap(hz, W + 0.012, D + 0.012, H, front=0.215, back=0.05, side=0.13), hair, "head")
-	for k, (x, zz, a) in enumerate([(-0.06, 0.245, -25), (0.0, 0.25, 0), (0.06, 0.24, 25)]):
-		tuft = cyl((x * 0.6, -0.1, hz + zz - 0.03), (x * 1.3, -0.128, hz + zz - 0.075), 0.03, 0.004, n=4)
-		b.add("Hair", tuft, hair, "head")
-
-	# ---- Torso
-	b.add("Torso", loft([(0.8, 0.19, 0.138), (0.88, 0.18, 0.128), (1.0, 0.168, 0.116), (1.09, 0.16, 0.11)], n=8), t_body, "hips")
-	b.add("Torso", loft([(0.965, 0.176, 0.124), (1.035, 0.171, 0.12)], n=8), belt, "hips")
-	b.add("Torso", box((0.07, 0.02, 0.06), center=(0, -0.128, 1.0)), gold, "hips")
-	b.add("Torso", box((0.07, 0.05, 0.075), center=(0.135, -0.07, 0.955), top=(0.9, 0.9)), belt, "hips")
-	b.add("Torso", loft([(1.05, 0.155, 0.105), (1.16, 0.165, 0.11), (1.27, 0.182, 0.118)], n=8), t_body, "spine")
-	b.add("Torso", loft([(1.24, 0.178, 0.117), (1.32, 0.208, 0.13), (1.39, 0.22, 0.126), (1.445, 0.18, 0.104), (1.475, 0.1, 0.078)], n=8), t_body, "chest")
-	b.add("Torso", box((0.26, 0.034, 0.16), center=(0, -0.123, 1.34), top=(0.84, 1.0)), t_body, "chest")
-	b.add("Torso", box((0.03, 0.02, 0.14), center=(0, -0.143, 1.34)), t_body, "chest")
-
-	# ---- Arms (sleeves + pauldrons, tinted with the body armour)
-	std_arms(b, J, "Arms", t_body, r=(0.06, 0.051, 0.05, 0.042), pauldron=(0.097, (1.12, 1.08, 0.86)))
-
-	# ---- Hands (gloves + cuffs)
-	fists(b, J, "Hands", t_gloves, size=(0.095, 0.09, 0.115))
-
-	def cuff(side, sx):
-		wr = J["wrist_" + side]
-		d = J["forearm_dir_" + side]
-		return seg(wr - d * 0.09, wr + d * 0.004, [(0, 0.049, 0.051), (1, 0.058, 0.06)], n=6), "lower_arm_" + side
-	b.both("Hands", cuff, t_gloves)
-
-	# ---- Legs
-	std_legs(b, J, "Legs", pants, r=(0.095, 0.067, 0.065, 0.05))
-
-	def knee_geo(side, sx):
-		k = J["knee_" + side]
-		cop = xf(sphere(0.052, 6, 3, cut=(0.0, 1.0), scale=(1.0, 1.0, 0.45)), T(k + V(0, -0.052, -0.005)) @ R(90, 0, 0))
-		return cop, "lower_leg_" + side
-	b.both("Legs", knee_geo, tint_mat("tint_legs", rough=0.4, metal=0.35))
-
-	# ---- Feet (boots)
-	std_boots(b, J, "Feet", t_boots, w=0.115, l=0.25, h=0.1, shaft=0.2, r=0.066)
-
-	b.build(arm)
-	return arm, dict(s=1.0, weapon=True, arm_swing=24, stabilize_left=True, run_frames=18, duty=0.3), cc_anim.PLAYER_ANIMS
 
 
 # =================================================================================== skeleton
@@ -890,7 +815,6 @@ def build_merchant():
 
 
 CHARACTERS = {
-	"char_player": build_player,
 	"char_skeleton": build_skeleton,
 	"char_zombie": build_zombie,
 	"char_ghoul": build_ghoul,

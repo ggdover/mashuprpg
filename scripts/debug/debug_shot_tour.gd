@@ -91,7 +91,7 @@ func _run() -> void:
 	if menu != null and menu.has_method("begin_new_game"):
 		menu.call("begin_new_game")
 	else:
-		Events.new_game_requested.emit("Morwen", CLASS_ID)
+		Events.new_game_requested.emit("Morwen", CLASS_ID, "")
 	_boost()
 	await _await_area()
 	await _wait(0.9)

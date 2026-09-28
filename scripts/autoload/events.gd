@@ -11,8 +11,8 @@ extends Node
 ## Parameters are typed loosely (Node / RefCounted), so this file has no class dependencies.
 
 # ---------------------------------------------------------------- Game flow
-## Main menu -> start a new character.
-signal new_game_requested(char_name: String, class_id: String)
+## Main menu -> start a new character (appearance: a ClassDefs look, "" = the class default).
+signal new_game_requested(char_name: String, class_id: String, appearance: String)
 ## Main menu -> load an existing save (save_id comes from GameState.list_saves()).
 signal load_game_requested(save_id: String)
 signal return_to_menu_requested()

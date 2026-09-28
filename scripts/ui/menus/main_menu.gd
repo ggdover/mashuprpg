@@ -10,8 +10,10 @@ extends Control
 ##             calls GameState.delete_save(); New Character opens the create view; Quit Game emits
 ##             Events.quit_requested.
 ##   create  — name LineEdit (Enter = begin, dice = random name) + three class cards with
-##             ClassDefs descriptions, colours, attributes, starting gear and skills. Begin
-##             Adventure emits Events.new_game_requested(name, class_id).
+##             ClassDefs descriptions, colours, attributes, starting gear and skills, and an
+##             Appearance row for classes with several looks (ClassDefs "looks"; the warrior picks
+##             one of two male exiles). Begin Adventure emits
+##             Events.new_game_requested(name, class_id, appearance).
 ## The create view opens by itself when there are no saves. After a request is emitted the buttons
 ## are disabled until the menu is opened again (or for a few seconds, in case the flow refused).
 ## Standalone: `var m := MainMenu.new(); add_child(m); m.on_opened({})`.
@@ -60,6 +62,11 @@ var _count_label: Label
 var _status_label: Label
 var _save_group := ButtonGroup.new()
 var _class_group := ButtonGroup.new()
+var _look_group := ButtonGroup.new()
+## The Appearance row (hidden when the selected class has a single look) and its buttons.
+var look_row: HBoxContainer
+var _look_buttons: Dictionary = {}  # look -> Button
+var _selected_look := ""
 var _rows: Dictionary = {}          # save_id -> row
 var _cards: Dictionary = {}         # class_id -> card
 var _saves: Array = []
@@ -214,6 +221,21 @@ func select_class(class_id: String) -> void:
 		return
 	_selected_class = class_id
 	(_cards[class_id] as Button).button_pressed = true
+	_refresh_looks()
+
+
+## Pick one of the selected class's looks (ignored when the class can't pick it).
+func select_look(look: String) -> void:
+	if not ClassDefs.get_looks(_selected_class).has(look):
+		return
+	_selected_look = look
+	if _look_buttons.has(look):
+		(_look_buttons[look] as Button).set_pressed_no_signal(true)
+
+
+## The look the new hero will have (the class default until another is picked).
+func get_selected_look() -> String:
+	return ClassDefs.get_look(_selected_class, _selected_look)
 
 
 func get_selected_class() -> String:
@@ -231,7 +253,7 @@ func begin_new_game() -> void:
 	if n == "" or _is_busy():
 		return
 	_set_busy(true, "Your journey begins...")
-	Events.new_game_requested.emit(n, _selected_class)
+	Events.new_game_requested.emit(n, _selected_class, get_selected_look())
 
 
 func quit_game() -> void:
@@ -265,7 +287,7 @@ func _start_demo(panel: String) -> void:
 	if sid != "":
 		Events.load_game_requested.emit(sid)
 	else:
-		Events.new_game_requested.emit(EXPLORER_NAME, "ranger")
+		Events.new_game_requested.emit(EXPLORER_NAME, "ranger", "")
 
 
 ## A random fantasy name ("Kaeris", "Wrendor"...).
@@ -417,11 +439,16 @@ func _build_create_view() -> Control:
 		card.toggled.connect(func(on: bool) -> void:
 			if on:
 				_selected_class = cid
+				_refresh_looks()
 				_update_buttons())
 		card.chosen.connect(func(_id: String) -> void: begin_new_game())
 		cards.add_child(card)
 		_cards[cid] = card
 	v.add_child(cards)
+	# Appearance (classes with several looks).
+	look_row = MenuStyle.hbox(12)
+	look_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(look_row)
 	# Buttons.
 	var buttons := MenuStyle.hbox(12)
 	back_button = MenuStyle.make_button("Back", UIStyle.FONT_NORMAL)
@@ -439,6 +466,37 @@ func _build_create_view() -> Control:
 	buttons.add_child(begin_button)
 	v.add_child(buttons)
 	return v
+
+
+## Rebuild the Appearance row for the selected class (hidden with a single look).
+func _refresh_looks() -> void:
+	if look_row == null:
+		return
+	for c in look_row.get_children():
+		look_row.remove_child(c)
+		c.queue_free()
+	_look_buttons.clear()
+	var looks := ClassDefs.get_looks(_selected_class)
+	if not looks.has(_selected_look):
+		_selected_look = looks[0]
+	look_row.visible = looks.size() > 1
+	if looks.size() <= 1:
+		return
+	var l := MenuStyle.label("Appearance", UIStyle.FONT_LARGE, UIStyle.COLOR_TEXT_DIM)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	look_row.add_child(l)
+	look_row.add_child(MenuStyle.spacer(Vector2(8, 0), false))
+	for look in looks:
+		var b := MenuStyle.make_button(String(ClassDefs.LOOK_NAMES.get(look, look)), UIStyle.FONT_NORMAL)
+		b.toggle_mode = true
+		b.button_group = _look_group
+		b.custom_minimum_size = Vector2(190, 0)
+		b.button_pressed = look == _selected_look
+		b.toggled.connect(func(on: bool) -> void:
+			if on:
+				_selected_look = look)
+		look_row.add_child(b)
+		_look_buttons[look] = b
 
 
 func _build_confirm() -> Control:

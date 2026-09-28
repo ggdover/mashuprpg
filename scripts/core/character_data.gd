@@ -40,6 +40,8 @@ const _EPS := 0.0001
 
 var char_name: String = "Hero"
 var class_id: String = "warrior"
+## Chosen player look (ClassDefs "looks": "f", "m1", "m2"; "" = the class default). See get_look().
+var appearance: String = ""
 var level: int = 1
 ## XP progress inside the current level (resets to 0 on level up).
 var xp: int = 0
@@ -74,6 +76,11 @@ func _init() -> void:
 
 
 # ------------------------------------------------------------------ progression
+
+## The player model look to show (ClassDefs.get_look of the class and the chosen appearance).
+func get_look() -> String:
+	return ClassDefs.get_look(class_id, appearance)
+
 
 func xp_to_next() -> int:
 	return Balance.xp_to_next(level)
@@ -626,6 +633,7 @@ func to_dict() -> Dictionary:
 	return {
 		"char_name": char_name,
 		"class_id": class_id,
+		"appearance": appearance,
 		"level": level,
 		"xp": xp,
 		"gold": gold,
@@ -660,6 +668,9 @@ static func from_dict(d: Dictionary) -> CharacterData:
 		push_warning("CharacterData.from_dict: unknown class '%s'" % cid)
 		cid = ClassDefs.DEFAULT_CLASS
 	c.class_id = cid
+	c.appearance = String(d.get("appearance", ""))
+	if c.appearance != "" and not ClassDefs.get_looks(cid).has(c.appearance):
+		c.appearance = ""
 	c.level = clampi(int(d.get("level", 1)), 1, Balance.MAX_LEVEL)
 	c.xp = maxi(0, int(d.get("xp", 0)))
 	if c.is_max_level():

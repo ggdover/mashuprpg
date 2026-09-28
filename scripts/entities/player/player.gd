@@ -247,7 +247,7 @@ func _ready() -> void:
 	visuals = PlayerVisuals.new()
 	visuals.name = "Visuals"
 	add_child(visuals)
-	visuals.build()
+	visuals.build(character.get_look() if character != null else "")
 	model = visuals.model
 	anim_player = visuals.anim
 	refresh_equipment_visuals()
@@ -357,7 +357,7 @@ func use_potion(kind: String) -> bool:
 	return true
 
 
-## Re-apply equipment visuals (weapon in hand, helmet, armour tints).
+## Re-apply equipment visuals (weapons in hand, armour pieces).
 func refresh_equipment_visuals() -> void:
 	if visuals != null:
 		visuals.apply_equipment(character)

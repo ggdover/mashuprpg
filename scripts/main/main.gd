@@ -221,14 +221,14 @@ func show_main_menu() -> void:
 
 
 ## Create a character, save it and enter the town. False while a change is running.
-func start_new_game(char_name: String, class_id: String) -> bool:
+func start_new_game(char_name: String, class_id: String, appearance: String = "") -> bool:
 	if _changing:
 		return false
 	if _in_game():
 		push_warning("Main: new game requested while playing; ignored")
 		return false
 	_discard_kept_world()
-	GameState.new_character(char_name, class_id)
+	GameState.new_character(char_name, class_id, appearance)
 	_save_now()
 	return _begin_change("town", {"reason": "new_game"})
 
@@ -392,8 +392,8 @@ func get_kept_world() -> World:
 
 # ------------------------------------------------------------------ event handlers
 
-func _on_new_game_requested(char_name: String, class_id: String) -> void:
-	start_new_game(char_name, class_id)
+func _on_new_game_requested(char_name: String, class_id: String, appearance: String = "") -> void:
+	start_new_game(char_name, class_id, appearance)
 
 
 func _on_load_game_requested(p_save_id: String) -> void:

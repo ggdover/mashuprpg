@@ -51,8 +51,9 @@ func _process(delta: float) -> void:
 ## Create a fresh character: starting items (ItemDB.create_item, normal) equipped, class skill bar
 ## (via .assign), 3/3 potions, max_depth 1. Sets `character` and a new save_id. Does not change
 ## area or save. Class attributes are NOT stored on the character (Player.get_base_mods reads
-## ClassDefs). Unknown class ids fall back to the warrior (with a warning).
-func new_character(char_name: String, class_id: String) -> CharacterData:
+## ClassDefs). Unknown class ids fall back to the warrior (with a warning). `appearance` is one of
+## the class's ClassDefs looks ("" or unknown = the class default).
+func new_character(char_name: String, class_id: String, appearance: String = "") -> CharacterData:
 	var cid := class_id
 	if not ClassDefs.has_class(cid):
 		push_warning("GameState.new_character: unknown class '%s', using %s" % [cid, ClassDefs.DEFAULT_CLASS])
@@ -61,6 +62,7 @@ func new_character(char_name: String, class_id: String) -> CharacterData:
 	var n := char_name.strip_edges()
 	c.char_name = n if n != "" else "Hero"
 	c.class_id = cid
+	c.appearance = appearance if ClassDefs.get_looks(cid).has(appearance) else ""
 	c.level = 1
 	c.xp = 0
 	c.gold = 0

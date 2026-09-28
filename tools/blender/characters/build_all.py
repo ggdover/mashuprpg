@@ -34,7 +34,6 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 MODEL_DIR = os.path.join(REPO, "assets", "models")
 ICON_DIR = os.path.join(REPO, "assets", "icons", "items")
 
-PLAYER_PARTS = ["Head", "Torso", "Arms", "Hands", "Legs", "Feet"]
 TRI_BUDGET_CHAR = 3000
 TRI_BUDGET_WEAPON = 800
 
@@ -84,12 +83,6 @@ def validate_character(cid, anims):
 	for b in cc_rig.BONE_NAMES:
 		if b not in arm.data.bones:
 			raise RuntimeError("%s: missing bone %s" % (cid, b))
-	if cid == "char_player":
-		for p in PLAYER_PARTS:
-			if p not in obs:
-				raise RuntimeError("char_player: missing part %s" % p)
-			if not any(s.material and s.material.name.startswith("tint_") for s in obs[p].material_slots):
-				raise RuntimeError("char_player: part %s has no tint_ material" % p)
 	tris = sum(tri_count(o) for o in bpy.data.objects if o.type == "MESH")
 	if tris > TRI_BUDGET_CHAR:
 		raise RuntimeError("%s: %d tris > budget %d" % (cid, tris, TRI_BUDGET_CHAR))
@@ -127,7 +120,7 @@ PREVIEW_HELD = {
 def preview_character(cid, arm, anims, out_dir):
 	import cc_preview
 	os.makedirs(out_dir, exist_ok=True)
-	holds = cid in ("char_player", "char_skeleton")
+	holds = cid == "char_skeleton"
 	groups = {}
 	for a in anims:
 		held = PREVIEW_HELD.get(a, ("weapon_sword", "offhand_shield")) if holds else (None, None)

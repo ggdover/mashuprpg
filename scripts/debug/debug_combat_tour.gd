@@ -28,7 +28,7 @@ func _run() -> void:
 	print("[combat-tour] saving screenshots to ", out_dir)
 	_clear_saves()
 	GameState.act_options = {"level_mode": "custom", "level": TOUR_LEVEL, "monsters": true, "god_mode": true}
-	Events.new_game_requested.emit("Parry Tester", TOUR_CLASS)
+	Events.new_game_requested.emit("Parry Tester", TOUR_CLASS, "")
 	await _await_area()
 	UI.close_all_panels()
 	main.call("request_area_change", "act", {"act": "forest", "zone": "outskirts", "seed": 7})

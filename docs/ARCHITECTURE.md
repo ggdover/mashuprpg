@@ -599,7 +599,12 @@ vendor panel removes bought items from the array and never regenerates it. Craft
 ### 11.1 Classes (`ClassDefs`)
 warrior 20/12/10, ranger 12/20/10, sorcerer 10/12/20 (str/dex/int), starting items and skill bar per
 `ClassDefs.CLASSES`, tree start = start node with the same `class`. New characters: level 1, 0 gold, 3/3
-potion charges, `max_depth` 1, start items equipped (normal). Attributes are not stored on the character.
+potion charges, `max_depth` 1, start items equipped (normal: only the class weapon — heroes start in the
+look's default outfit, no armour). Attributes are not stored on the character.
+**Looks:** `ClassDefs` `"looks"` per class, default first — ranger and sorcerer `["f"]` (the female
+exile), warrior `["m1", "m2"]` (two male exiles, picked in the New Character screen's Appearance row).
+`CharacterData.appearance` stores the pick (saved; "" or a look the class can't use = the class
+default), `CharacterData.get_look()` resolves it; `Events.new_game_requested(name, class_id, appearance)`.
 
 ### 11.2 `CharacterData` / `GameState`
 See stubs. Every mutator emits its Events signal; UI code never writes the arrays directly. `add_xp`
@@ -653,16 +658,23 @@ only: no Color/Vector2/int keys). `save_id` = sanitized name + unix time. Typed 
   `TreeDB.get_mods(allocated, class)` + resist penalty in dungeons (§5.3). Recalculate on
   `equipment_changed`, `passives_changed`, `level_up`; emit `Events.player_stats_changed`. Level up: full
   heal, ring VFX, `Sfx.play("level_up")`, `Events.notify.emit("Level %d" % L, UIStyle.COLOR_GOLD)`.
-- **Visuals:** `Assets.model("char_player")` + `Assets.prepare_animations()`; idle / walk (below
+- **Visuals:** `Assets.model("char_player_<look>")` (`PlayerVisuals.build(character.get_look())`) +
+  `Assets.prepare_animations()`; idle / walk (below
   2.8 m/s, speed_scale = speed / 1.82) / run by speed; while an action plays and the player moves, a
   `SkeletonModifier3D` leg layer (`player_legs.gd`) poses the legs from the directional walks — `walk`,
   `walk_right`, `walk_back`, `walk_left`, blended by the direction of movement relative to the facing at
   one shared phase, in step with the ground speed — blended in by speed (not under dodge / die / channel
   / hit);
   one-shots via `play_action_animation` (speed scaled to duration); spin the model during `channel`.
-  Main-hand model on `grip_r`, shield/focus on `grip_l`, quiver on `chest`, helmet on `head`
-  (`Assets.attach_to_bone`). Tint body parts with `Assets.tint`: body armour → `Torso` + `Arms`, gloves →
-  `Hands`, boots → `Feet`. Hit flash (`Assets.set_flash`) on `damaged`; camera shake for hits > 15% of max
+  Main-hand model on `grip_r`, shield/focus on `grip_l`, quiver on `chest` (`Assets.attach_to_bone`).
+  Armour shows the model's own gear piece (`player_gear.gd`, data/player_gear.json): helmet → `Helm_*`,
+  body → `Chest_*`, gloves → `Gloves_*`, boots → `Boots_*`, named `<Slot>_<family>_<tier>`; family = the
+  base's first attribute (str / str_dex / str_int → str, dex / dex_int → dex, int), tier 1 for base tiers
+  1–2, 2 for 3–4, 3 for 5–6, uniques one tier higher (max 3). A shown piece hides the base parts it lists
+  (`HairTop` under helmets, `Outfit_Top` + `Outfit_Belt` under body armour, `Hands` + `Outfit_Wraps` under
+  gloves, `Outfit_Feet` under boots) and its `tint_*` surfaces take the item tint. Cape (`cape_1..3`) and
+  hair (`hair_1..2`) bones swing on a `SpringBoneSimulator3D` (body capsules on the spine and thighs keep
+  them out of the body; the movement pushes them back). Hit flash (`Assets.set_flash`) on `damaged`; camera shake for hits > 15% of max
   life. Warm shadowless `OmniLight3D` above the player (range ~10). `world.mark_explored(pos, 14)` a few
   times per second. Death → `Events.player_died`, anim `die`, input off.
 
@@ -776,8 +788,11 @@ through the mouse (or `mouse_override`): mask 28, areas + bodies; null while `UI
 - Low-poly, flat shaded, **materials with Principled base colours** (+ emission for glowing parts). No image
   textures. Budgets: character ≤ 3k tris, weapon ≤ 800, env tile ≤ 500.
 - **Tintable materials** are named `tint_<x>` with base colour ≈ (0.8, 0.8, 0.8); skin, eyes, emissive
-  and fixed-colour materials are not prefixed. Every `char_player` body part and every item model has at
+  and fixed-colour materials are not prefixed. Every player gear piece and every item model has at
   least one `tint_` material. (`Assets.tint` multiplies only `tint*` materials.)
+- **Hidden parts:** objects exported with the custom property `hidden = 1` (glTF extras, exported with
+  `export_extras=True`; Godot imports them as the node meta `extras`) start hidden in `Assets.model()` —
+  the player models' gear pieces, so every consumer of a player model sees the default outfit.
 - Metres; humanoids ~1.8 m. Characters face −Y in Blender (+Z in Godot), origin at the feet. Weapons: grip
   at the origin, blade/shaft along +Z in Blender (+Y in Godot), flat of blade facing ±X. Floor tiles: 2×2 m,
   top at z = 0, centred. Wall blocks: 2×2 m footprint, 2.4 m tall, rising from z = 0, centred. Props: origin
@@ -790,9 +805,17 @@ through the mouse (or `mouse_override`): mask 28, areas + bodies; null while `UI
 ### 14.2 Humanoid rig (every `char_*`)
 Bones: `root` (origin), `hips`, `spine`, `chest`, `neck`, `head`, `upper_arm_l/r`, `lower_arm_l/r`,
 `hand_l/r`, `grip_l/r` (non-deforming children of the hands), `upper_leg_l/r`, `lower_leg_l/r`,
-`foot_l/r`. Rigid segmented meshes skinned 100% to one bone each (armature modifier + vertex groups).
-Separate mesh objects `Head`, `Torso`, `Arms`, `Hands`, `Legs`, `Feet` (+ optional `Hair`, `Details`) —
-required names for `char_player`. **Attachment axes (verified):** a `BoneAttachment3D` has its origin at the
+`foot_l/r`. Monsters: rigid segmented meshes skinned 100% to one bone each (armature modifier + vertex
+groups), merged into one `Body` mesh.
+**Player models** (`char_player_f` / `_m1` / `_m2`, `tools/blender/player/`, low poly, smooth skinning with
+up to 4 weights per vertex): the same bones plus `clavicle_l/r` (under the arms), `toe_l/r`, `hair_1` →
+`hair_2` (on the head), `cape_1` → `cape_3` (on the chest's back; both chains swing on a runtime
+`SpringBoneSimulator3D`) and `skirt_f/b/l/r` (on the hips; keyed in every animation from the thighs so long
+hems follow the legs). Mesh parts: the base look `Head`, `HairTop` (hidden under helmets), `HairBack`,
+`HairFront`, `Body` (skin), `Hands`, `Outfit_Top` (with the outfit's skirts), `Outfit_Belt`, `Outfit_Legs`,
+`Outfit_Feet`, `Outfit_Wraps` — and every gear piece `<Helm|Chest|Gloves|Boots>_<str|dex|int>_<1|2|3>`
+(exported hidden; `data/player_gear.json` lists each piece's slot, family, tier and the base parts it
+hides). `char_player.glb` is the `m1` look (stand-in for tools and demos). **Attachment axes (verified):** a `BoneAttachment3D` has its origin at the
 bone HEAD, its +Y along the bone's head→tail direction, and its +X along the bone's local X (roll). So:
 `grip_r`/`grip_l`: head at the palm centre, tail 0.1 m along the direction the held item's Blender +Z
 should point in the idle pose, roll so local X is the blade-flat normal — then a weapon at identity
@@ -815,14 +838,22 @@ the feet, built with a sideways thigh swing, `RigInfo.solve_leg_3d`). `char_merc
 `Assets.prepare_animations(model)` (sets `deterministic = true` and loop modes for idle/run/channel).
 
 ### 14.4 Catalogue
-**assets-characters** — rigged: `char_player` (neutral adventurer; gear shown by tints/attachments),
+**player** (`tools/blender/player/build_player.py`) — `char_player_f` (the female exile: ranger, sorcerer),
+`char_player_m1`, `char_player_m2` (the two male exiles: warrior) and the alias `char_player` (= m1), from
+the reference sheets: default outfits (torn linen, wraps, sandals / wrapped shoes / boots) and 36 gear
+pieces — STR (tier 1 nasal helm, studded jerkin over mail, fur collar; tier 2 the rare axeguard's scale,
+fur mantle and red emblem cape; tier 3 the unique wolf knight), DEX (tier 1 the common hunter's hood and
+leather vest; tier 2 the rare ranger's green coat, fur mantle and tree cloak; tier 3 the frostbound hunter's
+winged helm and huge fur), INT (tier 1 the novice mage's hood, shawl and layered skirts; tier 2 the
+spellblade's rune coat, pauldrons and purple cape; tier 3 the storm seer's spiked crown and long rune robe).
+**assets-characters** — rigged:
 `char_skeleton`, `char_zombie`, `char_ghoul` (hunched, long arms), `char_cultist` (hooded robe), `char_brute`
 (huge, ~2.4 m), `char_lich` (boss, ~3 m, crown, robes, glowing eyes), `char_gravebreaker` (boss, ~3 m, horned,
 armour plates), `char_merchant` (NPC, apron). Weapons: `weapon_sword`, `weapon_greatsword`, `weapon_axe`,
 `weapon_greataxe`, `weapon_mace`, `weapon_maul`, `weapon_dagger`, `weapon_wand`, `weapon_staff`,
 `weapon_bow`, `weapon_crossbow`; off-hands: `offhand_shield`, `offhand_focus` (floating orb/tome),
-`offhand_quiver`. Worn helmets: `armor_helmet_str` (plate), `armor_helmet_dex` (leather hood),
-`armor_helmet_int` (circlet/crown). Ground-only: `armor_body` (cuirass), `armor_gloves`, `armor_boots`,
+`offhand_quiver`. Ground-only (worn armour is part of the player models): `armor_helmet_str` (plate),
+`armor_helmet_dex` (leather hood), `armor_helmet_int` (circlet/crown), `armor_body` (cuirass), `armor_gloves`, `armor_boots`,
 `jewel_ring`, `jewel_amulet`, `jewel_belt`, `loot_gold` (coin pile), `loot_potion_life`, `loot_potion_mana`.
 **Item icons**: 128×128 transparent PNG per item model id → `assets/icons/items/<id>.png`.
 
@@ -847,7 +878,8 @@ on a dark round badge, colour-coded (melee red/orange, bow/crossbow green, spell
 Each asset module ships a probe **scene** `tools/godot/probe_<module>.tscn` (+ `.gd`), run with
 `tools/gtest.sh <module> res://tools/godot/probe_<module>.tscn`. It loads every id and asserts: exactly one
 `Skeleton3D` and one `AnimationPlayer` per character, every §14.3 animation name present without `_001`,
-`char_player` has Head/Torso/Arms/Hands/Legs/Feet, rough AABB sizes and origins; prints a report. Plus a
+the player models have their base parts and every gear piece of `data/player_gear.json` (with a `tint_`
+material), rough AABB sizes and origins; prints a report. Plus a
 windowed preview scene that saves screenshots to `docs/screenshots/<module>/`, which the author inspects.
 
 ---------------------------------------------------------------------------------------------------------
@@ -1062,9 +1094,9 @@ nodes with the same orbit as arcs via `get_link_arc(a, b)`). UI helpers: `NODE_R
   polish pass — read the model's `ref_run_speed` from the probe notes if provided).
 - Bosses carry their weapons in the mesh (`char_gravebreaker` part `Weapon` = tombstone maul,
   `char_lich` staff); don't attach extras. The lich hovers by itself.
-- `char_player`: `Hair` is a separate part — hide it when a helmet is worn. Empty glove/boot slots look
-  better tinted a leather colour. Monster part names may be merged into one `Body` mesh in the polish
-  pass: only rely on the `Weapon` part name for monsters; tint/flash whole models.
+- Player models: show armour by toggling the gear pieces and the base parts they hide
+  (`data/player_gear.json`, see §11.3); don't attach helmets. Monster part names may be merged into one `Body`
+  mesh in the polish pass: only rely on the `Weapon` part name for monsters; tint/flash whole models.
 - Item icons are pre-coloured: don't multiply them by the item tint.
 
 **Environment** (`env_*`, `town_*`, `proj_*`): `env_torch` origin on the wall face at floor level

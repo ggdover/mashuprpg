@@ -41,8 +41,8 @@ func _on_load(save_id: String) -> void:
 	_loads.append(save_id)
 
 
-func _on_new(char_name: String, class_id: String) -> void:
-	_news.append([char_name, class_id])
+func _on_new(char_name: String, class_id: String, appearance: String) -> void:
+	_news.append([char_name, class_id, appearance])
 
 
 func _on_quit() -> void:
@@ -127,10 +127,37 @@ func test_new_character_emits_name_and_class() -> void:
 	m.name_edit.text_changed.emit(m.name_edit.text)
 	m.select_class("sorcerer")
 	assert_eq(m.get_selected_class(), "sorcerer", "class selected")
+	assert_false(m.look_row.visible, "sorcerers have a single look")
 	await _settle()
 	_click_button(m.begin_button)
 	await _settle()
-	assert_eq(_news, [["Ysolde", "sorcerer"]], "new_game_requested(name, class)")
+	assert_eq(_news, [["Ysolde", "sorcerer", "f"]], "new_game_requested(name, class, look)")
+	_teardown()
+
+
+func test_warrior_picks_a_look() -> void:
+	_setup_saves([])
+	var m := _menu()
+	await _settle()
+	m.set_character_name("Bjorn")
+	m.select_class("warrior")
+	await _settle()
+	assert_true(m.look_row.visible, "warriors choose between two looks")
+	assert_eq(m.get_selected_look(), "m1", "first look by default")
+	m.select_look("m2")
+	assert_eq(m.get_selected_look(), "m2", "second look picked")
+	m.select_look("f")
+	assert_eq(m.get_selected_look(), "m2", "the female look isn't a warrior look")
+	m.select_class("ranger")
+	await _settle()
+	assert_false(m.look_row.visible, "rangers have one look")
+	assert_eq(m.get_selected_look(), "f", "ranger look")
+	m.select_class("warrior")
+	m.select_look("m2")
+	await _settle()
+	_click_button(m.begin_button)
+	await _settle()
+	assert_eq(_news, [["Bjorn", "warrior", "m2"]], "appearance sent")
 	_teardown()
 
 
